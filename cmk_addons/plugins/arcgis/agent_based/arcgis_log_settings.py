@@ -9,6 +9,8 @@ from cmk.agent_based.v2 import (
     StringTable,
 )
 
+
+
 Section = dict[str, str]
 
 def parse_arcgis_log_settings(string_table: StringTable) -> Section:

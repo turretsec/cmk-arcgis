@@ -13,13 +13,25 @@ from cmk_addons.plugins.arcgis.lib.arcgis_normalize import (
     normalize_registered_datastore_validation,
 )
 from cmk_addons.plugins.arcgis.lib.arcgis_output import (
-    log_settings_lines,
+    output_json_piggyback,
     output_piggyback,
     output_section,
-    portal_indexer_lines,
-    portal_license_lines,
-    portal_validate_federation_lines,
-    server_license_lines,
+    portal_license_section,
+    server_license_section,
+    output_json_section,
+    portal_health_section,
+    portal_indexer_section,
+    portal_federation_section,
+    arcgis_services_section,
+    arcgis_server_machines_section,
+    log_settings_section,
+)
+
+from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
+    RegisteredDatastoreValidation,
+    SectionRegisteredDatastoreValidation,
+    ManagedDatastoreValidation,
+    SectionManagedDatastoreValidation,
 )
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -84,15 +96,15 @@ def collect_portal(
             role = machine.get("role", "standalone") or "standalone"
 
             if piggyback_host:
-                output_piggyback(
+                output_json_piggyback(
                     piggyback_host,
                     "arcgis_portal_health",
-                    [f"{machine_status} {role}"],
+                    portal_health_section(machine_status, role),
                 )
             else:
-                output_section(
+                output_json_section(
                     "arcgis_portal_health",
-                    [f"{machine_status} {role}"],
+                    portal_health_section(machine_status, role),
                 )
 
         collection.ok("portal_health", "portal")
@@ -102,18 +114,18 @@ def collect_portal(
         sys.stderr.write(f"Failed to get Portal health: {e}\n")
 
     try:
-        output_section(
+        output_json_section(
             "arcgis_portal_indexer",
-            portal_indexer_lines(portal_client.get_portal_indexer()),
+            portal_indexer_section(portal_client.get_portal_indexer()),
         )
         collection.ok("portal_indexer", "portal")
     except Exception as e:
         collection.error("portal_indexer", "portal", e)
 
     try:
-        output_section(
+        output_json_section(
             "arcgis_portal_federation",
-            portal_validate_federation_lines(portal_client.validate_federation()),
+            portal_federation_section(portal_client.validate_federation()),
             cache_interval=300,
         )
         collection.ok("portal_federation", "portal")
@@ -121,9 +133,9 @@ def collect_portal(
         collection.error("portal_federation", "portal", e)
 
     try:
-        output_section(
+        output_json_section(
             "arcgis_portal_license",
-            portal_license_lines(portal_client.get_license()),
+            portal_license_section(portal_client.get_license()),
             cache_interval=3600,
         )
         collection.ok("portal_license", "portal")
@@ -131,9 +143,9 @@ def collect_portal(
         collection.error("portal_license", "portal", e)
 
     try:
-        output_section(
+        output_json_section(
             "arcgis_portal_log_settings",
-            log_settings_lines(portal_client.get_log_settings()),
+            log_settings_section(portal_client.get_log_settings()),
             cache_interval=3600,
         )
         collection.ok("portal_log_settings", "portal")
@@ -151,7 +163,7 @@ def collect_portal(
 def collect_server_machines(server_name, server_client: ServerClient, collection: CollectionStatus) -> None:
     machines = server_client.get_machines()
 
-    lines = []
+    machine_statuses = []
 
     for machine in machines:
         machine_name = machine.get("machineName") or machine.get("name")
@@ -160,24 +172,18 @@ def collect_server_machines(server_name, server_client: ServerClient, collection
 
         status = server_client.get_machine_status(machine_name)
 
-        configured_state = (
-            status.get("configuredState")
-            or status.get("configured_state")
-            or "UNKNOWN"
-        )
-        realtime_state = (
-            status.get("realTimeState")
-            or status.get("realTime_state")
-            or status.get("realtimeState")
-            or "UNKNOWN"
+        machine_statuses.append(
+            {
+                "name": machine_name,
+                "configured_state": status.get("configuredState", "UNKNOWN"),
+                "realtime_state": status.get("realTimeState", "UNKNOWN"),
+            }
         )
 
-        lines.append(f"{machine_name} {configured_state} {realtime_state}")
-
-    output_piggyback(
+    output_json_piggyback(
         server_name,
         "arcgis_server_machines",
-        lines,
+        arcgis_server_machines_section(machine_statuses),
         cache_interval=300,
     )
     
@@ -195,16 +201,21 @@ def collect_server_services(server_name, server_client: ServerClient, collection
     ]
     statuses = server_client.get_services_report(service_list)
 
-    lines = [
-        f"{name} {states['configuredState']} {states['realTimeState']}" 
-        for name, states in statuses.items()
-    ]
-    output_piggyback(server_name, "arcgis_services", lines)
+    output_json_piggyback(
+        server_name,
+        "arcgis_services",
+        arcgis_services_section(statuses),
+    )
 
-def collect_registered_datastores(server_name, server_client: ServerClient, collection: CollectionStatus) -> None:
-    # Check registered datastores
-    registered_datastore_lines = []
+def collect_registered_datastores(
+    server_name: str,
+    server_client: ServerClient,
+    collection: CollectionStatus,
+) -> None:
+    validations: list[RegisteredDatastoreValidation] = []
+
     registered_datastores = server_client.get_datastores(managed=False)
+
     for item in registered_datastores:
         validation = server_client.validate_registered_datastore(item)
         health_items = normalize_registered_datastore_validation(
@@ -212,14 +223,22 @@ def collect_registered_datastores(server_name, server_client: ServerClient, coll
             item.get("type", ""),
             validation,
         )
+
         for health_item in health_items:
-            registered_datastore_lines.append(
-                f"{health_item.path} {health_item.store_type} {health_item.status} {health_item.message}"
+            validations.append(
+                RegisteredDatastoreValidation(
+                    path=health_item.path,
+                    store_type=health_item.store_type,
+                    status=health_item.status,
+                    message=health_item.message,
+                    machine=getattr(health_item, "machine", None),
+                )
             )
-    output_piggyback(
+
+    output_json_piggyback(
         server_name,
         "arcgis_registered_datastore_validation",
-        registered_datastore_lines,
+        SectionRegisteredDatastoreValidation(validations=validations),
         cache_interval=900,
     )
 
@@ -229,7 +248,8 @@ def collect_managed_datastores(
     collection: CollectionStatus,
 ) -> tuple[int, int]:
     managed_datastores = server_client.get_datastores(managed=True)
-    machine_validations: dict[str, list[dict[str, str]]] = {}
+
+    machine_validations: dict[str, list[ManagedDatastoreValidation]] = {}
 
     validated_count = 0
     unsupported_count = 0
@@ -250,41 +270,44 @@ def collect_managed_datastores(
             validated_count += 1
 
             machine_validations.setdefault(machine_name, []).append(
-                {
-                    "path": item_path,
-                    "classification": classification,
-                    "message": message,
-                }
+                ManagedDatastoreValidation(
+                    path=item_path,
+                    classification=classification,
+                    message=message,
+                )
             )
 
     for machine_name, validations in machine_validations.items():
         piggyback_host = piggyback_host_from_machine_name(machine_name)
 
-        output_piggyback(
+        output_json_piggyback(
             piggyback_host,
             "arcgis_managed_datastore_validation",
-            [
-                f"{v['path']} {v['classification']} {v['message']}"
-                for v in validations
-            ],
+            SectionManagedDatastoreValidation(validations=validations),
             cache_interval=900,
         )
 
     return validated_count, unsupported_count
+
 def collect_server_license(server_name, server_client: ServerClient, collection: CollectionStatus) -> None:
     # Check license status
     license_data = server_client.get_license()
-    output_piggyback(server_name, "arcgis_server_license", server_license_lines(license_data), cache_interval=3600)
+    output_json_piggyback(
+        server_name,
+        "arcgis_server_license",
+        server_license_section(license_data),
+        cache_interval=3600,
+    )
 
 def collect_server_log_settings(
     server_name: str,
     server_client: ServerClient,
     collection: CollectionStatus,
 ) -> None:
-    output_piggyback(
+    output_json_piggyback(
         server_name,
         "arcgis_server_log_settings",
-        log_settings_lines(server_client.get_log_settings()),
+        log_settings_section(server_client.get_log_settings()),
         cache_interval=3600,
     )
 
@@ -363,7 +386,7 @@ def agent_arcgis(args):
             federated_servers = collect_portal(args, portal_client, collection)
         except Exception as e:
             collection.error("Portal", args.portal_url, e)
-            output_section("arcgis_collection_status", collection.lines)
+            output_json_section("arcgis_collection_status", collection.section())
             return 1
 
         for server in federated_servers:
@@ -380,10 +403,10 @@ def agent_arcgis(args):
             )
             collect_server(args, server, server_client, collection)
         
-        output_section("arcgis_collection_status", collection.lines)
+        output_json_section("arcgis_collection_status", collection.section())
         return 0
 
-    output_section("arcgis_collection_status", collection.lines)
+    output_json_section("arcgis_collection_status", collection.section())
     return 0
 
 def main() -> int:

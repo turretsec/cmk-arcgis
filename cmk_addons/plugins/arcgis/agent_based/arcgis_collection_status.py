@@ -1,3 +1,7 @@
+import json
+
+from pydantic import ValidationError
+
 from cmk.agent_based.v2 import (
     AgentSection,
     CheckPlugin,
@@ -9,48 +13,69 @@ from cmk.agent_based.v2 import (
     StringTable,
 )
 
-Section = list[dict[str, str]]
+from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
+    CollectionStatusEntry,
+    SectionCollectionStatus,
+)
 
-def parse_arcgis_collection_status(string_table: StringTable) -> Section:
-    parsed: Section = []
+
+def _raw_section_text(string_table: StringTable) -> str:
+    return "".join("".join(row) for row in string_table).strip()
+
+
+def parse_arcgis_collection_status(
+    string_table: StringTable,
+) -> SectionCollectionStatus:
+    raw = _raw_section_text(string_table)
+
+    if not raw:
+        return SectionCollectionStatus(entries=[])
+
+    # JSON path
+    if raw.startswith("{"):
+        try:
+            return SectionCollectionStatus.model_validate_json(raw)
+        except ValidationError as exc:
+            # Temporarily raise this while debugging. Once stable, you can fall back.
+            raise RuntimeError(
+                f"Failed to parse arcgis_collection_status JSON: {raw!r}"
+            ) from exc
+
+    # Old text-row fallback
+    entries: list[CollectionStatusEntry] = []
 
     for row in string_table:
         if len(row) < 3:
             continue
 
-        component = row[0]
-        target = row[1]
-        status = row[2].strip().upper()
-        message = " ".join(row[3:]).strip() if len(row) > 3 else ""
-
-        parsed.append(
-            {
-                "component": component,
-                "target": target,
-                "status": status,
-                "message": message,
-            }
+        entries.append(
+            CollectionStatusEntry(
+                component=row[0],
+                target=row[1],
+                status=row[2],
+                message=" ".join(row[3:]) if len(row) > 3 else "",
+            )
         )
 
-    return parsed
+    return SectionCollectionStatus(entries=entries)
 
-def discover_arcgis_collection_status(section: Section) -> DiscoveryResult:
-    if section:
+def discover_arcgis_collection_status(section: SectionCollectionStatus) -> DiscoveryResult:
+    if section.entries:
         yield Service()
 
-def check_arcgis_collection_status(section: Section) -> CheckResult:
-    if not section:
+def check_arcgis_collection_status(section: SectionCollectionStatus) -> CheckResult:
+    if not section.entries:
         yield Result(state=State.UNKNOWN, summary="No collection status found")
         return
 
-    errors = [row for row in section if row["status"] == "ERROR"]
-    warnings = [row for row in section if row["status"] == "WARN"]
-    skips = [row for row in section if row["status"] == "SKIP"]
+    errors = [entry for entry in section.entries if entry.status.upper() == "ERROR"]
+    warnings = [entry for entry in section.entries if entry.status.upper() == "WARN"]
+    skips = [entry for entry in section.entries if entry.status.upper() == "SKIP"]
 
     if errors:
         details = "; ".join(
-            f"{row['component']}:{row['target']} {row['message']}"
-            for row in errors
+            f"{entry.component}:{entry.target} {entry.message}"
+            for entry in errors
         )
         yield Result(
             state=State.CRIT,
@@ -62,8 +87,8 @@ def check_arcgis_collection_status(section: Section) -> CheckResult:
     if warnings or skips:
         problem_rows = warnings + skips
         details = "; ".join(
-            f"{row['component']}:{row['target']} {row['status']} {row['message']}"
-            for row in problem_rows
+            f"{entry.component}:{entry.target} {entry.status} {entry.message}"
+            for entry in problem_rows
         )
         yield Result(
             state=State.WARN,
@@ -74,7 +99,7 @@ def check_arcgis_collection_status(section: Section) -> CheckResult:
 
     yield Result(
         state=State.OK,
-        summary=f"{len(section)} collection step(s) OK",
+        summary=f"{len(section.entries)} collection step(s) OK",
     )
 
 agent_section_arcgis_collection_status = AgentSection(

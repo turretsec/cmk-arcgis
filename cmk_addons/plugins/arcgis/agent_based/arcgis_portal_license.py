@@ -13,6 +13,10 @@ from cmk.agent_based.v2 import (
 
 Section = dict[str, dict[str, str | int]]
 
+from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
+    SectionPortalLicense,
+)
+
 def _parse_int(value: str, default: int = 0) -> int:
     try:
         return int(value)
@@ -82,13 +86,11 @@ def parse_arcgis_portal_license(string_table: StringTable) -> Section:
 
     return parsed
 
-def discover_arcgis_portal_license(section: Section) -> DiscoveryResult:
-    if "summary" in section:
-        yield Service(item="summary")
+def discover_arcgis_portal_license(section: SectionPortalLicense) -> DiscoveryResult:
+    yield Service(item="summary")
 
-    for item in section:
-        if item != "summary":
-            yield Service(item=item)
+    for item in section.items:
+        yield Service(item=f"{item.kind} {item.id}")
 
 def check_arcgis_portal_license(item: str, section: Section) -> CheckResult:
     if item not in section:
