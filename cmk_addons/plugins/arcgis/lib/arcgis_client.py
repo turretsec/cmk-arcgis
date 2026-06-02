@@ -129,7 +129,7 @@ class PortalClient:
     def get_portal_machines(self) -> list[dict]:
         return self.get_json("/portaladmin/machines").get("machines", [])
     
-    def get_portal_machine_status(self, machine_name: str) -> dict:
+    def get_portal_machine_status(self, machine_name: str) -> str:
         return self.get_json(f"/portaladmin/machines/status/{machine_name}").get("status", "error")
     
     def get_portal_indexer(self) -> dict:

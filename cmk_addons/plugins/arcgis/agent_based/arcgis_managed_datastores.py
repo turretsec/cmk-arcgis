@@ -9,6 +9,11 @@ from cmk.agent_based.v2 import (
     StringTable,
 )
 
+from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
+    ManagedDatastoreValidation,
+    SectionManagedDatastoreValidation,
+)
+
 Section = dict[str, dict[str, str]]
 
 def _state_from_managed_datastore_classification(
@@ -42,51 +47,64 @@ def _state_from_managed_datastore_classification(
 
     return State.UNKNOWN
 
+def _raw_section_text(string_table: StringTable) -> str:
+    return "".join("".join(row) for row in string_table).strip()
+
 def parse_arcgis_managed_datastore_validation(
     string_table: StringTable,
-) -> Section:
-    parsed: Section = {}
+) -> SectionManagedDatastoreValidation:
+    raw = _raw_section_text(string_table)
+
+    if raw.startswith("{"):
+        return SectionManagedDatastoreValidation.model_validate_json(raw)
+
+    # Old text-row fallback
+    validations: list[ManagedDatastoreValidation] = []
 
     for row in string_table:
         if len(row) < 2:
             continue
 
-        path = row[0]
-        classification = row[1]
-        message = " ".join(row[2:]).strip() if len(row) > 2 else ""
+        validations.append(
+            ManagedDatastoreValidation(
+                path=row[0],
+                classification=row[1],
+                message=" ".join(row[2:]) if len(row) > 2 else "",
+            )
+        )
 
-        parsed[path] = {
-            "path": path,
-            "classification": classification,
-            "message": message,
-        }
-
-    return parsed
+    return SectionManagedDatastoreValidation(validations=validations)
 
 def discover_arcgis_managed_datastore_validation(
-    section: Section,
-) -> DiscoveryResult:
-    for path in section:
-        yield Service(item=path)
+    section: SectionManagedDatastoreValidation,
+):
+    for validation in section.validations:
+        yield Service(item=validation.path)
 
 def check_arcgis_managed_datastore_validation(
     item: str,
-    section: Section,
-) -> CheckResult:
-    if item not in section:
+    section: SectionManagedDatastoreValidation,
+):
+    validations_by_item = {
+        validation.path: validation
+        for validation in section.validations
+    }
+
+    if item not in validations_by_item:
         yield Result(
             state=State.UNKNOWN,
             summary="Managed datastore missing from agent output",
         )
         return
 
-    datastore = section[item]
+    validation = validations_by_item[item]
 
-    classification = datastore["classification"]
-    message = datastore.get("message", "")
+    state = _state_from_managed_datastore_classification(
+        validation.classification,
+        validation.message,
+    )
 
-    state = _state_from_managed_datastore_classification(classification, message)
-    normalized = classification.strip().lower()
+    normalized = validation.classification.strip().lower()
 
     if normalized == "success":
         summary = "Managed datastore validation successful"
@@ -99,19 +117,12 @@ def check_arcgis_managed_datastore_validation(
     elif normalized in {"warning", "warn"}:
         summary = "Managed datastore validation warning"
     else:
-        summary = f"Managed datastore validation status: {classification}"
+        summary = f"Managed datastore validation status: {validation.classification}"
 
-    if message:
-        yield Result(
-            state=state,
-            summary=summary,
-            details=message,
-        )
+    if validation.message:
+        yield Result(state=state, summary=summary, details=validation.message)
     else:
-        yield Result(
-            state=state,
-            summary=summary,
-        )
+        yield Result(state=state, summary=summary)
 
 agent_section_arcgis_managed_datastore_validation = AgentSection(
     name="arcgis_managed_datastore_validation",

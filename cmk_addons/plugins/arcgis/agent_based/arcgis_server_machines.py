@@ -9,7 +9,15 @@ from cmk.agent_based.v2 import (
     StringTable,
 )
 
+from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
+    ArcGISServerMachineState,
+    SectionArcGISServerMachines,
+)
+
 Section = dict[str, dict[str, str]]
+
+def _raw_section_text(string_table: StringTable) -> str:
+    return "".join("".join(row) for row in string_table).strip()
 
 def _state_from_machine_status(
     configured_state: str,
@@ -32,42 +40,40 @@ def _state_from_machine_status(
 
     return State.UNKNOWN
 
-def parse_arcgis_server_machines(string_table: StringTable) -> Section:
-    parsed: Section = {}
+def parse_arcgis_server_machines(string_table: StringTable) -> SectionArcGISServerMachines:
+    raw = _raw_section_text(string_table)
+
+    if raw.startswith("{"):
+        return SectionArcGISServerMachines.model_validate_json(raw)
+
+    machines: list[ArcGISServerMachineState] = []
 
     for row in string_table:
         if len(row) < 3:
             continue
 
-        machine_name = row[0]
-        configured_state = row[1]
-        realtime_state = row[2]
+        machines.append(
+            ArcGISServerMachineState(
+                name=row[0],
+                configured_state=row[1],
+                realtime_state=row[2],
+            )
+        )
 
-        parsed[machine_name] = {
-            "configured_state": configured_state,
-            "realtime_state": realtime_state,
-        }
+    return SectionArcGISServerMachines(machines=machines)
 
-    return parsed
-
-def discover_arcgis_server_machines(section: Section) -> DiscoveryResult:
-    for machine_name in section:
-        yield Service(item=machine_name)
+def discover_arcgis_server_machines(section: SectionArcGISServerMachines) -> DiscoveryResult:
+    for machine in section.machines:
+        yield Service(item=machine.name)
 
 def check_arcgis_server_machines(
     item: str,
-    section: Section,
+    section: SectionArcGISServerMachines,
 ) -> CheckResult:
-    if item not in section:
-        yield Result(
-            state=State.UNKNOWN,
-            summary="Server machine missing from agent output",
-        )
-        return
 
-    machine = section[item]
-    configured_state = machine["configured_state"]
-    realtime_state = machine["realtime_state"]
+    machine = section.machines.get(item)
+    configured_state = machine.configured_state
+    realtime_state = machine.realtime_state
 
     state = _state_from_machine_status(configured_state, realtime_state)
 

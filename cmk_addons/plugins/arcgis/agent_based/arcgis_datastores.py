@@ -9,6 +9,11 @@ from cmk.agent_based.v2 import (
     StringTable,
 )
 
+from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
+    RegisteredDatastoreValidation,
+    SectionRegisteredDatastoreValidation,
+)
+
 Section = dict[str, dict[str, str]]
 
 def _state_from_registered_datastore_status(status: str) -> State:
@@ -25,74 +30,75 @@ def _state_from_registered_datastore_status(status: str) -> State:
 
     return State.UNKNOWN
 
+def _raw_section_text(string_table: StringTable) -> str:
+    return "".join("".join(row) for row in string_table).strip()
+
+
 def parse_arcgis_registered_datastore_validation(
     string_table: StringTable,
-) -> Section:
-    parsed: Section = {}
+) -> SectionRegisteredDatastoreValidation:
+    raw = _raw_section_text(string_table)
+
+    if raw.startswith("{"):
+        return SectionRegisteredDatastoreValidation.model_validate_json(raw)
+
+    # Old text-row fallback
+    validations: list[RegisteredDatastoreValidation] = []
 
     for row in string_table:
         if len(row) < 3:
             continue
 
-        path = row[0]
-        datastore_type = row[1]
-        status = row[2]
-        message = " ".join(row[3:]) if len(row) > 3 else ""
+        validations.append(
+            RegisteredDatastoreValidation(
+                path=row[0],
+                store_type=row[1],
+                status=row[2],
+                message=" ".join(row[3:]) if len(row) > 3 else "",
+            )
+        )
 
-        parsed[path] = {
-            "path": path,
-            "type": datastore_type,
-            "status": status,
-            "message": message,
-        }
-
-    return parsed
+    return SectionRegisteredDatastoreValidation(validations=validations)
 
 def discover_arcgis_registered_datastore_validation(
-    section: Section,
-) -> DiscoveryResult:
-    for path in section:
-        yield Service(item=path)
+    section: SectionRegisteredDatastoreValidation,
+):
+    for validation in section.validations:
+        if validation.machine:
+            yield Service(item=f"{validation.path} on {validation.machine}")
+        else:
+            yield Service(item=validation.path)
 
 def check_arcgis_registered_datastore_validation(
     item: str,
-    section: Section,
-) -> CheckResult:
-    if item not in section:
+    section: SectionRegisteredDatastoreValidation,
+):
+    validations_by_item = {}
+
+    for validation in section.validations:
+        item_name = (
+            f"{validation.path} on {validation.machine}"
+            if validation.machine
+            else validation.path
+        )
+        validations_by_item[item_name] = validation
+
+    if item not in validations_by_item:
         yield Result(
             state=State.UNKNOWN,
             summary="Registered datastore missing from agent output",
         )
         return
 
-    datastore = section[item]
+    validation = validations_by_item[item]
+    state = _state_from_registered_datastore_status(validation.status)
 
-    datastore_type = datastore["type"]
-    status = datastore["status"]
-    message = datastore.get("message", "")
+    summary = f"{validation.store_type} validation {validation.status}"
 
-    state = _state_from_registered_datastore_status(status)
-
-    if state == State.OK:
-        summary = f"{datastore_type} validation successful"
-    elif state == State.WARN:
-        summary = f"{datastore_type} validation warning"
-    elif state == State.CRIT:
-        summary = f"{datastore_type} validation failed"
+    if validation.message:
+        yield Result(state=state, summary=summary, details=validation.message)
     else:
-        summary = f"{datastore_type} validation status unknown: {status}"
-
-    if message:
-        yield Result(
-            state=state,
-            summary=summary,
-            details=message,
-        )
-    else:
-        yield Result(
-            state=state,
-            summary=summary,
-        )
+        yield Result(state=state, summary=summary)
 
 agent_section_arcgis_registered_datastore_validation = AgentSection(
     name="arcgis_registered_datastore_validation",

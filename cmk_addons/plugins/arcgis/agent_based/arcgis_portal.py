@@ -9,22 +9,32 @@ from cmk.agent_based.v2 import (
     StringTable,
 )
 
-def parse_arcgis_portal_health(string_table: StringTable) -> dict[str, str]:
-    #print(f"DEBUG portal health rows: {string_table}\n")
-    parsed = {}
-    for row in string_table:
-        if len(row) == 2:
-            parsed["status"] = row[0]
-            parsed["role"] = row[1]
-    return parsed
+from cmk_addons.plugins.arcgis.lib.arcgis_sections import SectionPortalHealth
 
-def discover_arcgis_portal(section: dict[str, str]) -> DiscoveryResult:
-    if section.get("status"):
+def _raw_section_text(string_table: StringTable) -> str:
+    return "".join("".join(row) for row in string_table).strip()
+
+def parse_arcgis_portal_health(string_table: StringTable) -> SectionPortalHealth:
+    raw = _raw_section_text(string_table)
+
+    if raw.startswith("{"):
+        return SectionPortalHealth.model_validate_json(raw)
+
+    # Old fallback: success standalone
+    if string_table and len(string_table[0]) >= 1:
+        status = string_table[0][0]
+        role = string_table[0][1] if len(string_table[0]) > 1 else "standalone"
+        return SectionPortalHealth(status=status, role=role)
+
+    return SectionPortalHealth(status="unknown", role="unknown")
+
+def discover_arcgis_portal(section: SectionPortalHealth) -> DiscoveryResult:
+    if section.status:
         yield Service()
 
-def check_arcgis_portal_health(section: dict[str, str]) -> CheckResult:
-    status = section.get("status", "error")
-    role = section.get("role", "")
+def check_arcgis_portal_health(section: SectionPortalHealth) -> CheckResult:
+    status = section.status
+    role = section.role
 
     if status.strip().lower() == "success":
         summary = "Ready" if not role or role == "unknown" else f"Ready ({role})"
@@ -33,7 +43,7 @@ def check_arcgis_portal_health(section: dict[str, str]) -> CheckResult:
         yield Result(state=State.CRIT, summary=f"Machine not ready: {status}")
 
 agent_section_arcgis_portal = AgentSection(
-    name = "arcgis_portal_health",
+    name="arcgis_portal_health",
     parse_function=parse_arcgis_portal_health,
 )
 
@@ -46,20 +56,48 @@ check_plugin_arcgis_portal = CheckPlugin(
 
 ### Portal indexer status
 
-def parse_arcgis_portal_indexer(string_table: StringTable) -> dict:
-    parsed = {}
-    for row in string_table:
-        if len(row) == 3:
-            name, db_count, idx_count = row
-            parsed[name] = (int(db_count), int(idx_count))
-        elif len(row) == 2 and row[0] == "syncStatus":
-            parsed["syncStatus"] = row[1] == "True"
-    return parsed
+from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
+    PortalIndexCount,
+    SectionPortalIndexer,
+)
 
-def discover_arcgis_portal_indexer(section: dict) -> DiscoveryResult:
-    for name in section:
-        if name != "syncStatus":
-            yield Service(item=name)
+def _parse_int(value: str, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+def parse_arcgis_portal_indexer(string_table: StringTable) -> SectionPortalIndexer:
+    raw = _raw_section_text(string_table)
+
+    if raw.startswith("{"):
+        return SectionPortalIndexer.model_validate_json(raw)
+
+    indexes: list[PortalIndexCount] = []
+    sync_status = None
+
+    for row in string_table:
+        if not row:
+            continue
+
+        if row[0] == "syncStatus" and len(row) >= 2:
+            sync_status = row[1].strip().lower() == "true"
+            continue
+
+        if len(row) >= 3:
+            indexes.append(
+                PortalIndexCount(
+                    name=row[0],
+                    database_count=_parse_int(row[1]),
+                    index_count=_parse_int(row[2]),
+                )
+            )
+
+    return SectionPortalIndexer(indexes=indexes, sync_status=sync_status)
+
+def discover_arcgis_portal_indexer(section: SectionPortalIndexer) -> DiscoveryResult:
+    for index in section.indexes:
+        yield Service(item=index.name)
 
 def check_arcgis_portal_indexer(item: str, section: dict[str, tuple[int, int]]) -> CheckResult:
     if item == "syncStatus":
@@ -92,8 +130,8 @@ check_plugin_arcgis_portal_indexer = CheckPlugin(
 
 ### Portal sync status
 
-def discover_arcgis_portal_sync(section: dict) -> DiscoveryResult:
-    if "syncStatus" in section:
+def discover_arcgis_portal_sync(section: SectionPortalIndexer) -> DiscoveryResult:
+    if section.sync_status is not None:
         yield Service()
 
 def check_arcgis_portal_sync(section: dict) -> CheckResult:
@@ -115,29 +153,50 @@ check_plugin_arcgis_portal_sync = CheckPlugin(
 
 ### Portal federation status
 
-def parse_arcgis_portal_federation(string_table: StringTable) -> dict:
-    parsed = {}
+from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
+    PortalFederatedServerStatus,
+    SectionPortalFederation,
+)
+
+def parse_arcgis_portal_federation(string_table: StringTable) -> SectionPortalFederation:
+    raw = _raw_section_text(string_table)
+
+    if raw.startswith("{"):
+        return SectionPortalFederation.model_validate_json(raw)
+
+    servers: list[PortalFederatedServerStatus] = []
+    federation_status = "unknown"
 
     for row in string_table:
-        if len(row) == 2 and row[0] == "federationStatus":
-            parsed["federationStatus"] = row[1]
-        elif len(row) == 2:
-            parsed[row[0]] = row[1]
+        if len(row) < 2:
+            continue
 
-    return parsed
+        if row[0] == "federationStatus":
+            federation_status = row[1]
+        else:
+            servers.append(
+                PortalFederatedServerStatus(
+                    admin_url=row[0],
+                    status=row[1],
+                )
+            )
+
+    return SectionPortalFederation(
+        servers=servers,
+        federation_status=federation_status,
+    )
 
 agent_section_arcgis_portal_federation = AgentSection(
     name="arcgis_portal_federation",
     parse_function=parse_arcgis_portal_federation,
 )
 
-def discover_arcgis_portal_federation_servers(section: dict) -> DiscoveryResult:
-    for name in section:
-        if name != "federationStatus":
-            yield Service(item=name)
+def discover_arcgis_portal_federation_servers(section: SectionPortalFederation) -> DiscoveryResult:
+    for server in section.servers:
+        yield Service(item=server.admin_url)
 
-def check_arcgis_portal_federation_servers(item: str, section: dict) -> CheckResult:
-    status = section.get(item, "error").strip().lower().replace("_", " ")
+def check_arcgis_portal_federation_servers(item: str, section: SectionPortalFederation) -> CheckResult:
+    status = section.federation_status
 
     if status == "success":
         yield Result(state=State.OK, summary="Federated server is healthy")
@@ -156,12 +215,12 @@ check_plugin_arcgis_portal_federation_servers = CheckPlugin(
     check_function=check_arcgis_portal_federation_servers,
 )
 
-def discover_arcgis_portal_federation_status(section: dict) -> DiscoveryResult:
-    if "federationStatus" in section:
+def discover_arcgis_portal_federation_status(section: SectionPortalFederation) -> DiscoveryResult:
+    if section.federation_status is not None:
         yield Service()
 
-def check_arcgis_portal_federation_status(section: dict) -> CheckResult:
-    status = section.get("federationStatus", "error").strip().lower().replace("_", " ")
+def check_arcgis_portal_federation_status(section: SectionPortalFederation) -> CheckResult:
+    status = section.federation_status.strip().lower().replace("_", " ")
 
     if status == "success":
         yield Result(state=State.OK, summary="Federation is healthy")
