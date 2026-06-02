@@ -266,7 +266,9 @@ def arcgis_server_machines_section(
     )
 
 
-def log_settings_section(settings: dict) -> SectionArcGISLogSettings:
+def log_settings_section(settings_response: dict) -> SectionArcGISLogSettings:
+    settings = settings_response.get("settings", settings_response)
+
     level = (
         settings.get("logLevel")
         or settings.get("log level")
