@@ -18,6 +18,11 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     SectionCollectionStatus,
 )
 
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import (
+    looks_like_json_rows,
+    raw_section_rows,
+)
+
 
 def _raw_section_text(string_table: StringTable) -> str:
     return "".join("".join(row) for row in string_table).strip()
@@ -26,20 +31,16 @@ def _raw_section_text(string_table: StringTable) -> str:
 def parse_arcgis_collection_status(
     string_table: StringTable,
 ) -> SectionCollectionStatus:
-    raw = _raw_section_text(string_table)
+    raw_rows = raw_section_rows(string_table)
 
-    if not raw:
-        return SectionCollectionStatus(entries=[])
+    if looks_like_json_rows(raw_rows):
+        entries: list[CollectionStatusEntry] = []
 
-    # JSON path
-    if raw.startswith("{"):
-        try:
-            return SectionCollectionStatus.model_validate_json(raw)
-        except ValidationError as exc:
-            # Temporarily raise this while debugging. Once stable, you can fall back.
-            raise RuntimeError(
-                f"Failed to parse arcgis_collection_status JSON: {raw!r}"
-            ) from exc
+        for raw in raw_rows:
+            section = SectionCollectionStatus.model_validate_json(raw)
+            entries.extend(section.entries)
+
+        return SectionCollectionStatus(entries=entries)
 
     # Old text-row fallback
     entries: list[CollectionStatusEntry] = []

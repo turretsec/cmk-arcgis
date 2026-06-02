@@ -8,6 +8,10 @@ from cmk.agent_based.v2 import (
     State,
     StringTable,
 )
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import (
+    looks_like_json_rows,
+    raw_section_rows,
+)
 
 from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import raw_section_text
 from cmk_addons.plugins.arcgis.lib.arcgis_sections import SectionArcGISLogSettings
@@ -20,12 +24,21 @@ def _parse_optional_int(value: str | None) -> int | None:
         return None
 
 
-def parse_arcgis_log_settings(string_table: StringTable) -> SectionArcGISLogSettings:
-    raw = raw_section_text(string_table)
+def parse_arcgis_log_settings(
+    string_table: StringTable,
+) -> SectionArcGISLogSettings:
+    raw_rows = raw_section_rows(string_table)
 
-    if raw.startswith("{"):
-        return SectionArcGISLogSettings.model_validate_json(raw)
+    if looks_like_json_rows(raw_rows):
+        # If multiple appear, last one wins.
+        section = SectionArcGISLogSettings()
 
+        for raw in raw_rows:
+            section = SectionArcGISLogSettings.model_validate_json(raw)
+
+        return section
+
+    # Old text-row fallback
     values: dict[str, str] = {}
 
     for row in string_table:

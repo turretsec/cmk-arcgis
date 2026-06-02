@@ -17,15 +17,26 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     SectionPortalHealth,
     SectionPortalIndexer,
 )
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import (
+    looks_like_json_rows,
+    raw_section_rows,
+)
 
+def parse_arcgis_portal_health(
+    string_table: StringTable,
+) -> SectionPortalHealth:
+    raw_rows = raw_section_rows(string_table)
 
-def parse_arcgis_portal_health(string_table: StringTable) -> SectionPortalHealth:
-    raw = raw_section_text(string_table)
+    if looks_like_json_rows(raw_rows):
+        # If multiple appear, last one wins.
+        section = SectionPortalHealth(status="unknown", role="unknown")
 
-    if raw.startswith("{"):
-        return SectionPortalHealth.model_validate_json(raw)
+        for raw in raw_rows:
+            section = SectionPortalHealth.model_validate_json(raw)
 
-    # Old text fallback: success standalone
+        return section
+
+    # Old text-row fallback
     if string_table and len(string_table[0]) >= 1:
         status = string_table[0][0]
         role = string_table[0][1] if len(string_table[0]) > 1 else "standalone"
@@ -70,14 +81,30 @@ def _parse_int(value: str, default: int = 0) -> int:
         return default
 
 
-def parse_arcgis_portal_indexer(string_table: StringTable) -> SectionPortalIndexer:
-    raw = raw_section_text(string_table)
+def parse_arcgis_portal_indexer(
+    string_table: StringTable,
+) -> SectionPortalIndexer:
+    raw_rows = raw_section_rows(string_table)
 
-    if raw.startswith("{"):
-        return SectionPortalIndexer.model_validate_json(raw)
+    if looks_like_json_rows(raw_rows):
+        indexes: list[PortalIndexCount] = []
+        sync_status: bool | None = None
 
+        for raw in raw_rows:
+            section = SectionPortalIndexer.model_validate_json(raw)
+            indexes.extend(section.indexes)
+
+            if section.sync_status is not None:
+                sync_status = section.sync_status
+
+        return SectionPortalIndexer(
+            indexes=indexes,
+            sync_status=sync_status,
+        )
+
+    # Old text-row fallback
     indexes: list[PortalIndexCount] = []
-    sync_status = None
+    sync_status: bool | None = None
 
     for row in string_table:
         if not row:
@@ -96,7 +123,10 @@ def parse_arcgis_portal_indexer(string_table: StringTable) -> SectionPortalIndex
                 )
             )
 
-    return SectionPortalIndexer(indexes=indexes, sync_status=sync_status)
+    return SectionPortalIndexer(
+        indexes=indexes,
+        sync_status=sync_status,
+    )
 
 
 def discover_arcgis_portal_indexer(section: SectionPortalIndexer) -> DiscoveryResult:
@@ -161,12 +191,28 @@ check_plugin_arcgis_portal_sync = CheckPlugin(
 )
 
 
-def parse_arcgis_portal_federation(string_table: StringTable) -> SectionPortalFederation:
-    raw = raw_section_text(string_table)
+def parse_arcgis_portal_federation(
+    string_table: StringTable,
+) -> SectionPortalFederation:
+    raw_rows = raw_section_rows(string_table)
 
-    if raw.startswith("{"):
-        return SectionPortalFederation.model_validate_json(raw)
+    if looks_like_json_rows(raw_rows):
+        servers: list[PortalFederatedServerStatus] = []
+        federation_status = "unknown"
 
+        for raw in raw_rows:
+            section = SectionPortalFederation.model_validate_json(raw)
+            servers.extend(section.servers)
+
+            if section.federation_status != "unknown":
+                federation_status = section.federation_status
+
+        return SectionPortalFederation(
+            servers=servers,
+            federation_status=federation_status,
+        )
+
+    # Old text-row fallback
     servers: list[PortalFederatedServerStatus] = []
     federation_status = "unknown"
 

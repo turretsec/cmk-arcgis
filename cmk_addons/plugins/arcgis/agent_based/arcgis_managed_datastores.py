@@ -13,6 +13,10 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     ManagedDatastoreValidation,
     SectionManagedDatastoreValidation,
 )
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import (
+    looks_like_json_rows,
+    raw_section_rows,
+)
 
 Section = dict[str, dict[str, str]]
 
@@ -53,10 +57,16 @@ def _raw_section_text(string_table: StringTable) -> str:
 def parse_arcgis_managed_datastore_validation(
     string_table: StringTable,
 ) -> SectionManagedDatastoreValidation:
-    raw = _raw_section_text(string_table)
+    raw_rows = raw_section_rows(string_table)
 
-    if raw.startswith("{"):
-        return SectionManagedDatastoreValidation.model_validate_json(raw)
+    if looks_like_json_rows(raw_rows):
+        validations: list[ManagedDatastoreValidation] = []
+
+        for raw in raw_rows:
+            section = SectionManagedDatastoreValidation.model_validate_json(raw)
+            validations.extend(section.validations)
+
+        return SectionManagedDatastoreValidation(validations=validations)
 
     # Old text-row fallback
     validations: list[ManagedDatastoreValidation] = []

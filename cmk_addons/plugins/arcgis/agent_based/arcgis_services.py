@@ -14,6 +14,10 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     SectionArcGISServices,
 )
 
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import (
+    looks_like_json_rows,
+    raw_section_rows,
+)
 
 def _raw_section_text(string_table: StringTable) -> str:
     return "".join("".join(row) for row in string_table).strip()
@@ -48,12 +52,21 @@ _SERVICE_STATES = {
     "FAILED": State.CRIT,
 }
 
-def parse_arcgis_services(string_table: StringTable) -> SectionArcGISServices:
-    raw = _raw_section_text(string_table)
+def parse_arcgis_services(
+    string_table: StringTable,
+) -> SectionArcGISServices:
+    raw_rows = raw_section_rows(string_table)
 
-    if raw.startswith("{"):
-        return SectionArcGISServices.model_validate_json(raw)
+    if looks_like_json_rows(raw_rows):
+        services: list[ArcGISServiceState] = []
 
+        for raw in raw_rows:
+            section = SectionArcGISServices.model_validate_json(raw)
+            services.extend(section.services)
+
+        return SectionArcGISServices(services=services)
+
+    # Old text-row fallback
     services: list[ArcGISServiceState] = []
 
     for row in string_table:

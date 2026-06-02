@@ -30,3 +30,18 @@ def parse_json_section(
         return None
     except json.JSONDecodeError:
         return None
+    
+def raw_section_rows(string_table: StringTable) -> list[str]:
+    """Each sep(0) row may be its own complete JSON document."""
+    rows: list[str] = []
+
+    for row in string_table:
+        raw = "".join(row).strip()
+        if raw:
+            rows.append(raw)
+
+    return rows
+
+
+def looks_like_json_rows(rows: list[str]) -> bool:
+    return bool(rows) and rows[0].startswith("{")
