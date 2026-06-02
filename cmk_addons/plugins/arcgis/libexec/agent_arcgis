@@ -1,0 +1,2 @@
+#!/bin/sh
+exec python3 -m cmk_addons.plugins.arcgis.special_agent.agent_arcgis "$@"
