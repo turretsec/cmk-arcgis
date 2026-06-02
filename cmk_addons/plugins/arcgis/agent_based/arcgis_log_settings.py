@@ -8,49 +8,16 @@ from cmk.agent_based.v2 import (
     State,
     StringTable,
 )
-from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import (
-    looks_like_json_rows,
-    raw_section_rows,
-)
 
-from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import raw_section_text
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import parse_last_json_row
 from cmk_addons.plugins.arcgis.lib.arcgis_sections import SectionArcGISLogSettings
 
 
-def _parse_optional_int(value: str | None) -> int | None:
-    try:
-        return int(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
-def parse_arcgis_log_settings(
-    string_table: StringTable,
-) -> SectionArcGISLogSettings:
-    raw_rows = raw_section_rows(string_table)
-
-    if looks_like_json_rows(raw_rows):
-        # If multiple appear, last one wins.
-        section = SectionArcGISLogSettings()
-
-        for raw in raw_rows:
-            section = SectionArcGISLogSettings.model_validate_json(raw)
-
-        return section
-
-    # Old text-row fallback
-    values: dict[str, str] = {}
-
-    for row in string_table:
-        if len(row) < 2:
-            continue
-
-        values[row[0]] = " ".join(row[1:])
-
-    return SectionArcGISLogSettings(
-        level=values.get("level", "UNKNOWN"),
-        max_log_file_age=_parse_optional_int(values.get("maxLogFileAge")),
-        log_dir=values.get("logDir"),
+def parse_arcgis_log_settings(string_table: StringTable) -> SectionArcGISLogSettings:
+    return parse_last_json_row(
+        string_table,
+        SectionArcGISLogSettings,
+        SectionArcGISLogSettings(),
     )
 
 
@@ -79,44 +46,27 @@ def _state_for_log_level(level: str) -> tuple[State, str]:
 def _state_for_max_age(days: int | None) -> tuple[State, str]:
     if days is None:
         return State.UNKNOWN, "retention unknown"
-    if days <= 0:
-        return State.WARN, f"retention {days} days"
-    if days < 7:
-        return State.WARN, f"retention {days} days"
-    if days > 365:
+    if days <= 0 or days < 7 or days > 365:
         return State.WARN, f"retention {days} days"
 
     return State.OK, f"retention {days} days"
 
 
 def _worst_state(*states: State) -> State:
-    order = {
-        State.OK: 0,
-        State.WARN: 1,
-        State.CRIT: 2,
-        State.UNKNOWN: 3,
-    }
+    order = {State.OK: 0, State.WARN: 1, State.CRIT: 2, State.UNKNOWN: 3}
     return max(states, key=lambda state: order[state])
 
 
 def check_arcgis_log_settings(section: SectionArcGISLogSettings) -> CheckResult:
-    level_state, level_summary = _state_for_log_level(section.level)
+    level_state, level_text = _state_for_log_level(section.level)
+    age_state, age_text = _state_for_max_age(section.max_log_file_age)
+    final_state = _worst_state(level_state, age_state)
 
-    states = [level_state]
-    summaries = [level_summary]
-
-    if section.max_log_file_age is not None:
-        age_state, age_summary = _state_for_max_age(section.max_log_file_age)
-        states.append(age_state)
-        summaries.append(age_summary)
-
+    parts = [level_text, age_text]
     if section.log_dir:
-        summaries.append(f"log directory {section.log_dir}")
+        parts.append(f"log directory {section.log_dir}")
 
-    yield Result(
-        state=_worst_state(*states),
-        summary=", ".join(summaries),
-    )
+    yield Result(state=final_state, summary=", ".join(parts))
 
 
 agent_section_arcgis_portal_log_settings = AgentSection(

@@ -9,113 +9,74 @@ from cmk.agent_based.v2 import (
     StringTable,
 )
 
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import parse_json_rows
 from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     RegisteredDatastoreValidation,
     SectionRegisteredDatastoreValidation,
 )
-from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import (
-    looks_like_json_rows,
-    raw_section_rows,
-)
 
-Section = dict[str, dict[str, str]]
 
 def _state_from_registered_datastore_status(status: str) -> State:
     normalized = status.strip().lower()
 
     if normalized in {"success", "passed", "ok", "true"}:
         return State.OK
-
     if normalized in {"warning", "warn", "success with warnings"}:
         return State.WARN
-
     if normalized in {"failure", "failed", "error", "false"}:
         return State.CRIT
 
     return State.UNKNOWN
 
-def _raw_section_rows(string_table: StringTable) -> list[str]:
-    rows = []
-
-    for row in string_table:
-        raw = "".join(row).strip()
-        if raw:
-            rows.append(raw)
-
-    return rows
-
 
 def parse_arcgis_registered_datastore_validation(
     string_table: StringTable,
 ) -> SectionRegisteredDatastoreValidation:
-    raw_rows = raw_section_rows(string_table)
-
-    if looks_like_json_rows(raw_rows):
-        validations: list[RegisteredDatastoreValidation] = []
-
-        for raw in raw_rows:
-            section = SectionRegisteredDatastoreValidation.model_validate_json(raw)
-            validations.extend(section.validations)
-
-        return SectionRegisteredDatastoreValidation(validations=validations)
-
-    # Old text-row fallback
     validations: list[RegisteredDatastoreValidation] = []
 
-    for row in string_table:
-        if len(row) < 3:
-            continue
-
-        validations.append(
-            RegisteredDatastoreValidation(
-                path=row[0],
-                store_type=row[1],
-                status=row[2],
-                message=" ".join(row[3:]) if len(row) > 3 else "",
-            )
-        )
+    for section in parse_json_rows(string_table, SectionRegisteredDatastoreValidation):
+        validations.extend(section.validations)
 
     return SectionRegisteredDatastoreValidation(validations=validations)
 
+
+def _service_item(validation: RegisteredDatastoreValidation) -> str:
+    if validation.machine:
+        return f"{validation.path} on {validation.machine}"
+    return validation.path
+
+
 def discover_arcgis_registered_datastore_validation(
     section: SectionRegisteredDatastoreValidation,
-):
+) -> DiscoveryResult:
     for validation in section.validations:
-        if validation.machine:
-            yield Service(item=f"{validation.path} on {validation.machine}")
-        else:
-            yield Service(item=validation.path)
+        yield Service(item=_service_item(validation))
+
 
 def check_arcgis_registered_datastore_validation(
     item: str,
     section: SectionRegisteredDatastoreValidation,
-):
-    validations_by_item = {}
+) -> CheckResult:
+    validations_by_item = {
+        _service_item(validation): validation for validation in section.validations
+    }
 
-    for validation in section.validations:
-        item_name = (
-            f"{validation.path} on {validation.machine}"
-            if validation.machine
-            else validation.path
-        )
-        validations_by_item[item_name] = validation
-
-    if item not in validations_by_item:
+    validation = validations_by_item.get(item)
+    if validation is None:
         yield Result(
             state=State.UNKNOWN,
             summary="Registered datastore missing from agent output",
         )
         return
 
-    validation = validations_by_item[item]
     state = _state_from_registered_datastore_status(validation.status)
-
     summary = f"{validation.store_type} validation {validation.status}"
 
     if validation.message:
         yield Result(state=state, summary=summary, details=validation.message)
     else:
         yield Result(state=state, summary=summary)
+
 
 agent_section_arcgis_registered_datastore_validation = AgentSection(
     name="arcgis_registered_datastore_validation",
