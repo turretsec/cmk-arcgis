@@ -161,35 +161,47 @@ def portal_health_section(status: str, role: str) -> SectionPortalHealth:
 def portal_indexer_section(indexer_data: dict) -> SectionPortalIndexer:
     indexes: list[PortalIndexCount] = []
 
-    for name in ("users", "groups", "items"):
-        value = indexer_data.get(name)
-
-        if isinstance(value, dict):
-            database_count = int(
-                value.get("databaseCount")
-                or value.get("database_count")
-                or value.get("dbCount")
-                or 0
-            )
-            index_count = int(
-                value.get("indexCount")
-                or value.get("index_count")
-                or value.get("idxCount")
-                or 0
-            )
-        elif isinstance(value, (list, tuple)) and len(value) >= 2:
-            database_count = int(value[0])
-            index_count = int(value[1])
-        else:
-            continue
-
+    # Native ArcGIS shape: {"indexes": [{"name": "users", "databaseCount": 1, "indexCount": 1}], ...}
+    for index in indexer_data.get("indexes", []):
         indexes.append(
             PortalIndexCount(
-                name=name,
-                database_count=database_count,
-                index_count=index_count,
+                name=index.get("name", "unknown"),
+                database_count=int(index.get("databaseCount", 0) or 0),
+                index_count=int(index.get("indexCount", 0) or 0),
             )
         )
+
+    # Defensive fallback for already-normalized dict shapes.
+    if not indexes:
+        for name in ("users", "groups", "items"):
+            value = indexer_data.get(name)
+
+            if isinstance(value, dict):
+                database_count = int(
+                    value.get("databaseCount")
+                    or value.get("database_count")
+                    or value.get("dbCount")
+                    or 0
+                )
+                index_count = int(
+                    value.get("indexCount")
+                    or value.get("index_count")
+                    or value.get("idxCount")
+                    or 0
+                )
+            elif isinstance(value, (list, tuple)) and len(value) >= 2:
+                database_count = int(value[0])
+                index_count = int(value[1])
+            else:
+                continue
+
+            indexes.append(
+                PortalIndexCount(
+                    name=name,
+                    database_count=database_count,
+                    index_count=index_count,
+                )
+            )
 
     sync_status_raw = indexer_data.get("syncStatus")
     if isinstance(sync_status_raw, str):
@@ -217,7 +229,11 @@ def portal_federation_section(validation_data: dict) -> SectionPortalFederation:
 
     return SectionPortalFederation(
         servers=servers,
-        federation_status=validation_data.get("federationStatus", "unknown"),
+        federation_status=(
+            validation_data.get("federationStatus")
+            or validation_data.get("status")
+            or "unknown"
+        ),
     )
 
 def arcgis_services_section(

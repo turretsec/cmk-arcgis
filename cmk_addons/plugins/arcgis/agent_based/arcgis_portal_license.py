@@ -11,17 +11,20 @@ from cmk.agent_based.v2 import (
     StringTable,
 )
 
-Section = dict[str, dict[str, str | int]]
-
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import raw_section_text
 from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
+    PortalLicenseEntry,
+    PortalLicenseSummary,
     SectionPortalLicense,
 )
+
 
 def _parse_int(value: str, default: int = 0) -> int:
     try:
         return int(value)
     except (TypeError, ValueError):
         return default
+
 
 def _expiration_summary(expiration_ms: int) -> tuple[State, str]:
     if expiration_ms <= 0:
@@ -30,19 +33,17 @@ def _expiration_summary(expiration_ms: int) -> tuple[State, str]:
     now = datetime.now(timezone.utc)
     expiration = datetime.fromtimestamp(expiration_ms / 1000, tz=timezone.utc)
     days_left = (expiration - now).days
-
     expiration_text = expiration.strftime("%Y-%m-%d")
 
     if days_left < 0:
         return State.CRIT, f"expired on {expiration_text}"
-
     if days_left <= 7:
         return State.CRIT, f"expires on {expiration_text} ({days_left} days)"
-
     if days_left <= 30:
         return State.WARN, f"expires on {expiration_text} ({days_left} days)"
 
     return State.OK, f"expires on {expiration_text} ({days_left} days)"
+
 
 def _worst_state(*states: State) -> State:
     order = {
@@ -53,38 +54,41 @@ def _worst_state(*states: State) -> State:
     }
     return max(states, key=lambda state: order[state])
 
-def parse_arcgis_portal_license(string_table: StringTable) -> Section:
-    parsed: Section = {}
+
+def parse_arcgis_portal_license(string_table: StringTable) -> SectionPortalLicense:
+    raw = raw_section_text(string_table)
+
+    if raw.startswith("{"):
+        return SectionPortalLicense.model_validate_json(raw)
+
+    summary = PortalLicenseSummary()
+    items: list[PortalLicenseEntry] = []
 
     for row in string_table:
         if not row:
             continue
 
         if row[0] == "summary" and len(row) >= 4:
-            parsed["summary"] = {
-                "kind": "summary",
-                "current": _parse_int(row[1]),
-                "maximum": _parse_int(row[2]),
-                "version": row[3],
-            }
+            summary = PortalLicenseSummary(
+                current=_parse_int(row[1]),
+                maximum=_parse_int(row[2]),
+                version=row[3],
+            )
             continue
 
         if len(row) >= 5:
-            kind = row[0]
-            license_id = row[1]
-            current = _parse_int(row[2])
-            maximum = _parse_int(row[3])
-            expiration = _parse_int(row[4])
+            items.append(
+                PortalLicenseEntry(
+                    kind=row[0],
+                    id=row[1],
+                    current=_parse_int(row[2]),
+                    maximum=_parse_int(row[3]),
+                    expiration=_parse_int(row[4]),
+                )
+            )
 
-            parsed[f"{kind} {license_id}"] = {
-                "kind": kind,
-                "id": license_id,
-                "current": current,
-                "maximum": maximum,
-                "expiration": expiration,
-            }
+    return SectionPortalLicense(summary=summary, items=items)
 
-    return parsed
 
 def discover_arcgis_portal_license(section: SectionPortalLicense) -> DiscoveryResult:
     yield Service(item="summary")
@@ -92,17 +96,12 @@ def discover_arcgis_portal_license(section: SectionPortalLicense) -> DiscoveryRe
     for item in section.items:
         yield Service(item=f"{item.kind} {item.id}")
 
-def check_arcgis_portal_license(item: str, section: Section) -> CheckResult:
-    if item not in section:
-        yield Result(state=State.UNKNOWN, summary="License data missing from agent output")
-        return
 
-    license_item = section[item]
-
+def check_arcgis_portal_license(item: str, section: SectionPortalLicense) -> CheckResult:
     if item == "summary":
-        current = int(license_item["current"])
-        maximum = int(license_item["maximum"])
-        version = str(license_item["version"])
+        current = section.summary.current
+        maximum = section.summary.maximum
+        version = section.summary.version
 
         if maximum <= 0:
             yield Result(
@@ -126,17 +125,18 @@ def check_arcgis_portal_license(item: str, section: Section) -> CheckResult:
         )
         return
 
-    kind = str(license_item["kind"])
-    license_id = str(license_item["id"])
-    current = int(license_item["current"])
-    maximum = int(license_item["maximum"])
-    expiration = int(license_item["expiration"])
+    items_by_name = {f"{license_item.kind} {license_item.id}": license_item for license_item in section.items}
 
-    expiration_state, expiration_text = _expiration_summary(expiration)
+    if item not in items_by_name:
+        yield Result(state=State.UNKNOWN, summary="License data missing from agent output")
+        return
 
-    if maximum > 0:
-        usage_percent = current / maximum * 100
-        usage_text = f"{current}/{maximum} assigned ({usage_percent:.1f}%)"
+    license_item = items_by_name[item]
+    expiration_state, expiration_text = _expiration_summary(license_item.expiration)
+
+    if license_item.maximum > 0:
+        usage_percent = license_item.current / license_item.maximum * 100
+        usage_text = f"{license_item.current}/{license_item.maximum} assigned ({usage_percent:.1f}%)"
 
         if usage_percent >= 95:
             usage_state = State.CRIT
@@ -145,15 +145,14 @@ def check_arcgis_portal_license(item: str, section: Section) -> CheckResult:
         else:
             usage_state = State.OK
     else:
-        usage_text = f"{current} assigned, maximum unknown"
+        usage_text = f"{license_item.current} assigned, maximum unknown"
         usage_state = State.UNKNOWN
 
-    final_state = _worst_state(usage_state, expiration_state)
-
     yield Result(
-        state=final_state,
-        summary=f"{kind} {license_id}: {usage_text}, {expiration_text}",
+        state=_worst_state(usage_state, expiration_state),
+        summary=f"{license_item.kind} {license_item.id}: {usage_text}, {expiration_text}",
     )
+
 
 agent_section_arcgis_portal_license = AgentSection(
     name="arcgis_portal_license",
