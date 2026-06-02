@@ -1,3 +1,6 @@
+from collections.abc import Mapping
+from typing import Any
+
 from cmk.agent_based.v2 import (
     AgentSection,
     CheckPlugin,
@@ -15,6 +18,22 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     SectionArcGISServices,
 )
 
+DEFAULT_SERVICE_PARAMS = {
+    "started_not_started_state": "crit",
+    "stopped_stopped_state": "ok",
+    "stopped_not_stopped_state": "warn",
+    "transitional_state": "warn",
+    "failed_state": "crit",
+    "unknown_state": "unknown",
+}
+
+def _state_from_param(value: str) -> State:
+    return {
+        "ok": State.OK,
+        "warn": State.WARN,
+        "crit": State.CRIT,
+        "unknown": State.UNKNOWN,
+    }.get(value, State.UNKNOWN)
 
 def _state_from_service_status(
     configured_state: str,
@@ -58,7 +77,7 @@ def discover_arcgis_services(section: SectionArcGISServices) -> DiscoveryResult:
         yield Service(item=service.name)
 
 
-def check_arcgis_services(item: str, section: SectionArcGISServices) -> CheckResult:
+def check_arcgis_services(item: str, params: Mapping[str, Any], section: SectionArcGISServices) -> CheckResult:
     services_by_name = {service.name: service for service in section.services}
 
     service = services_by_name.get(item)
@@ -70,23 +89,52 @@ def check_arcgis_services(item: str, section: SectionArcGISServices) -> CheckRes
         service.configured_state,
         service.realtime_state,
     )
+    configured = service.configured_state.strip().upper()
+    realtime = service.realtime_state.strip().upper()
 
-    if service.configured_state == "STARTED" and service.realtime_state == "STARTED":
-        summary = f"Running (configured: {service.configured_state})"
-    elif service.configured_state == "STOPPED" and service.realtime_state == "STOPPED":
-        summary = f"Intentionally stopped (configured: {service.configured_state})"
-    elif service.configured_state == "STARTED" and service.realtime_state != "STARTED":
-        summary = f"Should be running but is {service.realtime_state}"
-    elif service.configured_state == "STOPPED" and service.realtime_state != "STOPPED":
-        summary = f"Running but configured as stopped (realtime: {service.realtime_state})"
-    else:
-        state = _SERVICE_STATES.get(service.realtime_state, State.UNKNOWN)
-        summary = (
-            f"State: {service.realtime_state} "
-            f"(configured: {service.configured_state})"
+    if configured == "STARTED" and realtime == "STARTED":
+        yield Result(state=State.OK, summary="Service is running")
+        return
+
+    if configured == "STOPPED" and realtime == "STOPPED":
+        yield Result(
+            state=_state_from_param(params["stopped_stopped_state"]),
+            summary="Service is intentionally stopped",
         )
+        return
 
-    yield Result(state=state, summary=summary)
+    if configured == "STARTED" and realtime != "STARTED":
+        yield Result(
+            state=_state_from_param(params["started_not_started_state"]),
+            summary=f"Configured STARTED but realtime state is {realtime}",
+        )
+        return
+
+    if configured == "STOPPED" and realtime != "STOPPED":
+        yield Result(
+            state=_state_from_param(params["stopped_not_stopped_state"]),
+            summary=f"Configured STOPPED but realtime state is {realtime}",
+        )
+        return
+
+    if realtime in {"STARTING", "STOPPING"}:
+        yield Result(
+            state=_state_from_param(params["transitional_state"]),
+            summary=f"Service is {realtime}",
+        )
+        return
+
+    if realtime in {"FAILED", "FAILURE"}:
+        yield Result(
+            state=_state_from_param(params["failed_state"]),
+            summary=f"Service is {realtime}",
+        )
+        return
+
+    yield Result(
+        state=_state_from_param(params["unknown_state"]),
+        summary=f"Configured {configured}, realtime {realtime}",
+    )
 
 
 agent_section_arcgis_services = AgentSection(
@@ -99,4 +147,6 @@ check_plugin_arcgis_services = CheckPlugin(
     service_name="ArcGIS Service %s",
     discovery_function=discover_arcgis_services,
     check_function=check_arcgis_services,
+    check_default_parameters=DEFAULT_SERVICE_PARAMS,
+    check_ruleset_name="arcgis_services",
 )
