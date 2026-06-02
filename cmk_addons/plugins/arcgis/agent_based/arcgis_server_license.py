@@ -16,7 +16,10 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     SectionServerLicense,
     ServerLicenseEntry,
 )
-
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import (
+    looks_like_json_rows,
+    raw_section_rows,
+)
 
 def _worst_state(*states: State) -> State:
     order = {
@@ -66,12 +69,21 @@ def _parse_int(value: str, default: int = 0) -> int:
         return default
 
 
-def parse_arcgis_server_license(string_table: StringTable) -> SectionServerLicense:
-    raw = raw_section_text(string_table)
+def parse_arcgis_server_license(
+    string_table: StringTable,
+) -> SectionServerLicense:
+    raw_rows = raw_section_rows(string_table)
 
-    if raw.startswith("{"):
-        return SectionServerLicense.model_validate_json(raw)
+    if looks_like_json_rows(raw_rows):
+        entries: list[ServerLicenseEntry] = []
 
+        for raw in raw_rows:
+            section = SectionServerLicense.model_validate_json(raw)
+            entries.extend(section.entries)
+
+        return SectionServerLicense(entries=entries)
+
+    # Old text-row fallback
     entries: list[ServerLicenseEntry] = []
 
     for row in string_table:

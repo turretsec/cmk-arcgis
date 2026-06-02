@@ -14,7 +14,10 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     ArcGISServerMachineState,
     SectionArcGISServerMachines,
 )
-
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import (
+    looks_like_json_rows,
+    raw_section_rows,
+)
 
 def _state_from_machine_status(configured_state: str, realtime_state: str) -> State:
     configured = configured_state.strip().upper()
@@ -31,12 +34,21 @@ def _state_from_machine_status(configured_state: str, realtime_state: str) -> St
     return State.UNKNOWN
 
 
-def parse_arcgis_server_machines(string_table: StringTable) -> SectionArcGISServerMachines:
-    raw = raw_section_text(string_table)
+def parse_arcgis_server_machines(
+    string_table: StringTable,
+) -> SectionArcGISServerMachines:
+    raw_rows = raw_section_rows(string_table)
 
-    if raw.startswith("{"):
-        return SectionArcGISServerMachines.model_validate_json(raw)
+    if looks_like_json_rows(raw_rows):
+        machines: list[ArcGISServerMachineState] = []
 
+        for raw in raw_rows:
+            section = SectionArcGISServerMachines.model_validate_json(raw)
+            machines.extend(section.machines)
+
+        return SectionArcGISServerMachines(machines=machines)
+
+    # Old text-row fallback
     machines: list[ArcGISServerMachineState] = []
 
     for row in string_table:

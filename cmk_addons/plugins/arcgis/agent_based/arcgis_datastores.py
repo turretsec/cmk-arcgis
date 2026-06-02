@@ -13,6 +13,10 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     RegisteredDatastoreValidation,
     SectionRegisteredDatastoreValidation,
 )
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import (
+    looks_like_json_rows,
+    raw_section_rows,
+)
 
 Section = dict[str, dict[str, str]]
 
@@ -30,17 +34,30 @@ def _state_from_registered_datastore_status(status: str) -> State:
 
     return State.UNKNOWN
 
-def _raw_section_text(string_table: StringTable) -> str:
-    return "".join("".join(row) for row in string_table).strip()
+def _raw_section_rows(string_table: StringTable) -> list[str]:
+    rows = []
+
+    for row in string_table:
+        raw = "".join(row).strip()
+        if raw:
+            rows.append(raw)
+
+    return rows
 
 
 def parse_arcgis_registered_datastore_validation(
     string_table: StringTable,
 ) -> SectionRegisteredDatastoreValidation:
-    raw = _raw_section_text(string_table)
+    raw_rows = raw_section_rows(string_table)
 
-    if raw.startswith("{"):
-        return SectionRegisteredDatastoreValidation.model_validate_json(raw)
+    if looks_like_json_rows(raw_rows):
+        validations: list[RegisteredDatastoreValidation] = []
+
+        for raw in raw_rows:
+            section = SectionRegisteredDatastoreValidation.model_validate_json(raw)
+            validations.extend(section.validations)
+
+        return SectionRegisteredDatastoreValidation(validations=validations)
 
     # Old text-row fallback
     validations: list[RegisteredDatastoreValidation] = []

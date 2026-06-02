@@ -17,7 +17,10 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     PortalLicenseSummary,
     SectionPortalLicense,
 )
-
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import (
+    looks_like_json_rows,
+    raw_section_rows,
+)
 
 def _parse_int(value: str, default: int = 0) -> int:
     try:
@@ -55,12 +58,26 @@ def _worst_state(*states: State) -> State:
     return max(states, key=lambda state: order[state])
 
 
-def parse_arcgis_portal_license(string_table: StringTable) -> SectionPortalLicense:
-    raw = raw_section_text(string_table)
+def parse_arcgis_portal_license(
+    string_table: StringTable,
+) -> SectionPortalLicense:
+    raw_rows = raw_section_rows(string_table)
 
-    if raw.startswith("{"):
-        return SectionPortalLicense.model_validate_json(raw)
+    if looks_like_json_rows(raw_rows):
+        merged_items: list[PortalLicenseEntry] = []
+        summary: PortalLicenseSummary | None = None
 
+        for raw in raw_rows:
+            section = SectionPortalLicense.model_validate_json(raw)
+            summary = section.summary
+            merged_items.extend(section.items)
+
+        return SectionPortalLicense(
+            summary=summary or PortalLicenseSummary(),
+            items=merged_items,
+        )
+
+    # Old text-row fallback
     summary = PortalLicenseSummary()
     items: list[PortalLicenseEntry] = []
 
