@@ -9,63 +9,72 @@ from cmk.agent_based.v2 import (
     StringTable,
 )
 
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import raw_section_text
+from cmk_addons.plugins.arcgis.lib.arcgis_sections import SectionArcGISLogSettings
 
 
-Section = dict[str, str]
+def _parse_optional_int(value: str | None) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
-def parse_arcgis_log_settings(string_table: StringTable) -> Section:
-    parsed: Section = {}
+
+def parse_arcgis_log_settings(string_table: StringTable) -> SectionArcGISLogSettings:
+    raw = raw_section_text(string_table)
+
+    if raw.startswith("{"):
+        return SectionArcGISLogSettings.model_validate_json(raw)
+
+    values: dict[str, str] = {}
 
     for row in string_table:
         if len(row) < 2:
             continue
 
-        key = row[0]
-        value = " ".join(row[1:])
-        parsed[key] = value
+        values[row[0]] = " ".join(row[1:])
 
-    return parsed
+    return SectionArcGISLogSettings(
+        level=values.get("level", "UNKNOWN"),
+        max_log_file_age=_parse_optional_int(values.get("maxLogFileAge")),
+        log_dir=values.get("logDir"),
+    )
 
-def discover_arcgis_log_settings(section: Section) -> DiscoveryResult:
-    if section:
+
+def discover_arcgis_log_settings(section: SectionArcGISLogSettings) -> DiscoveryResult:
+    if section.level:
         yield Service()
+
 
 def _state_for_log_level(level: str) -> tuple[State, str]:
     normalized = level.strip().upper()
 
     if normalized in {"WARNING", "WARN", "SEVERE"}:
         return State.OK, f"log level {normalized}"
-
     if normalized == "OFF":
         return State.WARN, "log level OFF"
-
     if normalized == "INFO":
         return State.WARN, "log level INFO"
-
     if normalized in {"FINE", "VERBOSE", "DEBUG"}:
         return State.CRIT, f"log level {normalized}"
-
     if normalized in {"UNKNOWN", ""}:
         return State.UNKNOWN, "log level unknown"
 
     return State.WARN, f"log level {normalized}"
 
-def _state_for_max_age(value: str) -> tuple[State, str]:
-    try:
-        days = int(value)
-    except ValueError:
-        return State.UNKNOWN, f"retention {value}"
 
+def _state_for_max_age(days: int | None) -> tuple[State, str]:
+    if days is None:
+        return State.UNKNOWN, "retention unknown"
     if days <= 0:
         return State.WARN, f"retention {days} days"
-
     if days < 7:
         return State.WARN, f"retention {days} days"
-
     if days > 365:
         return State.WARN, f"retention {days} days"
 
     return State.OK, f"retention {days} days"
+
 
 def _worst_state(*states: State) -> State:
     order = {
@@ -76,29 +85,26 @@ def _worst_state(*states: State) -> State:
     }
     return max(states, key=lambda state: order[state])
 
-def check_arcgis_log_settings(section: Section) -> CheckResult:
-    if not section:
-        yield Result(state=State.UNKNOWN, summary="No log settings found")
-        return
 
-    level = section.get("level", "UNKNOWN")
-    level_state, level_summary = _state_for_log_level(level)
+def check_arcgis_log_settings(section: SectionArcGISLogSettings) -> CheckResult:
+    level_state, level_summary = _state_for_log_level(section.level)
 
     states = [level_state]
     summaries = [level_summary]
 
-    if "maxLogFileAge" in section:
-        age_state, age_summary = _state_for_max_age(section["maxLogFileAge"])
+    if section.max_log_file_age is not None:
+        age_state, age_summary = _state_for_max_age(section.max_log_file_age)
         states.append(age_state)
         summaries.append(age_summary)
 
-    if "logDir" in section:
-        summaries.append(f"log directory {section['logDir']}")
+    if section.log_dir:
+        summaries.append(f"log directory {section.log_dir}")
 
     yield Result(
         state=_worst_state(*states),
         summary=", ".join(summaries),
     )
+
 
 agent_section_arcgis_portal_log_settings = AgentSection(
     name="arcgis_portal_log_settings",

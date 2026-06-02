@@ -11,12 +11,12 @@ from cmk.agent_based.v2 import (
     StringTable,
 )
 
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import raw_section_text
 from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     SectionServerLicense,
     ServerLicenseEntry,
 )
 
-Section = dict[str, dict[str, str | int | bool]]
 
 def _worst_state(*states: State) -> State:
     order = {
@@ -26,6 +26,7 @@ def _worst_state(*states: State) -> State:
         State.UNKNOWN: 3,
     }
     return max(states, key=lambda state: order[state])
+
 
 def _expiration_state(expiration_ms: int, can_expire: bool) -> tuple[State, str]:
     if not can_expire:
@@ -41,20 +42,12 @@ def _expiration_state(expiration_ms: int, can_expire: bool) -> tuple[State, str]
 
     if days_left < 0:
         return State.CRIT, f"expired on {expiration_text}"
-
     if days_left <= 7:
         return State.CRIT, f"expires on {expiration_text} ({days_left} days)"
-
     if days_left <= 30:
         return State.WARN, f"expires on {expiration_text} ({days_left} days)"
 
     return State.OK, f"expires on {expiration_text} ({days_left} days)"
-
-
-
-
-def _raw_section_text(string_table: StringTable) -> str:
-    return "".join("".join(row) for row in string_table).strip()
 
 
 def _parse_bool(value: str, default: bool = False) -> bool:
@@ -73,15 +66,12 @@ def _parse_int(value: str, default: int = 0) -> int:
         return default
 
 
-def parse_arcgis_server_license(
-    string_table: StringTable,
-) -> SectionServerLicense:
-    raw = _raw_section_text(string_table)
+def parse_arcgis_server_license(string_table: StringTable) -> SectionServerLicense:
+    raw = raw_section_text(string_table)
 
     if raw.startswith("{"):
         return SectionServerLicense.model_validate_json(raw)
 
-    # Old text-row fallback
     entries: list[ServerLicenseEntry] = []
 
     for row in string_table:
@@ -118,15 +108,14 @@ def parse_arcgis_server_license(
 
     return SectionServerLicense(entries=entries)
 
+
 def discover_arcgis_server_license(section: SectionServerLicense) -> DiscoveryResult:
-    for item in section:
-        yield Service(item=item)
+    for entry in section.entries:
+        yield Service(item=f"{entry.kind} {entry.name}")
+
 
 def check_arcgis_server_license(item: str, section: SectionServerLicense) -> CheckResult:
-    entries_by_item = {
-        f"{entry.kind} {entry.name}": entry
-        for entry in section.entries
-    }
+    entries_by_item = {f"{entry.kind} {entry.name}": entry for entry in section.entries}
 
     if item not in entries_by_item:
         yield Result(state=State.UNKNOWN, summary="License data missing from agent output")
@@ -134,18 +123,12 @@ def check_arcgis_server_license(item: str, section: SectionServerLicense) -> Che
 
     license_item = entries_by_item[item]
 
-    kind = str(license_item.kind)
-    name = str(license_item.name)
-    display_name = str(license_item.display_name or name)
-    version = str(license_item.version)
-    can_expire = bool(license_item.can_expire)
-    expiration = int(license_item.expiration)
-    is_valid = bool(license_item.is_valid)
-    core_count = int(license_item.core_count)
+    expiration_state, expiration_text = _expiration_state(
+        license_item.expiration,
+        license_item.can_expire,
+    )
 
-    expiration_state, expiration_text = _expiration_state(expiration, can_expire)
-
-    if not is_valid:
+    if not license_item.is_valid:
         validity_state = State.CRIT
         validity_text = "invalid"
     else:
@@ -153,20 +136,18 @@ def check_arcgis_server_license(item: str, section: SectionServerLicense) -> Che
         validity_text = "valid"
 
     final_state = _worst_state(expiration_state, validity_state)
+    display_name = license_item.display_name or license_item.name
 
-    if kind == "feature":
-        if core_count > 0:
+    if license_item.kind == "feature":
+        if license_item.core_count > 0:
             summary = (
-                f"{display_name}: {validity_text}, version {version}, "
-                f"{core_count} licensed core(s), {expiration_text}"
+                f"{display_name}: {validity_text}, version {license_item.version}, "
+                f"{license_item.core_count} licensed core(s), {expiration_text}"
             )
         else:
-            summary = (
-                f"{display_name}: {validity_text}, version {version}, "
-                f"{expiration_text}"
-            )
+            summary = f"{display_name}: {validity_text}, version {license_item.version}, {expiration_text}"
     else:
-        summary = f"{kind} {name}: version {version}, {expiration_text}"
+        summary = f"{license_item.kind} {license_item.name}: version {license_item.version}, {expiration_text}"
 
     yield Result(state=final_state, summary=summary)
 
