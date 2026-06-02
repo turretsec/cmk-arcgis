@@ -5,11 +5,15 @@ from cmk.rulesets.v1.form_specs import (
     String,
     Password,
     BooleanChoice,
+    List,
     Integer,
     DefaultValue,
     FieldSize,
+    SingleChoice,
+    SingleChoiceElement,
 )
 from cmk.rulesets.v1.rule_specs import SpecialAgent, Topic
+
 
 def _parameter_form() -> Dictionary:
     return Dictionary(
@@ -34,7 +38,7 @@ def _parameter_form() -> Dictionary:
                     help_text=Help("Base URL of your Portal e.g. https://portal.example.com/arcgis"),
                     field_size=FieldSize.LARGE,
                 ),
-                required=True,
+                required=False,
             ),
             "verify_ssl": DictElement(
                 parameter_form=BooleanChoice(
@@ -54,6 +58,7 @@ def _parameter_form() -> Dictionary:
             ),
         }
     )
+
 
 rule_spec_arcgis = SpecialAgent(
     name="arcgis",
