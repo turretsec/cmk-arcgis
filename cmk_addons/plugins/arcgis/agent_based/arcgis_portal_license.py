@@ -11,22 +11,12 @@ from cmk.agent_based.v2 import (
     StringTable,
 )
 
-from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import raw_section_text
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import parse_json_rows
 from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     PortalLicenseEntry,
     PortalLicenseSummary,
     SectionPortalLicense,
 )
-from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import (
-    looks_like_json_rows,
-    raw_section_rows,
-)
-
-def _parse_int(value: str, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _expiration_summary(expiration_ms: int) -> tuple[State, str]:
@@ -49,60 +39,17 @@ def _expiration_summary(expiration_ms: int) -> tuple[State, str]:
 
 
 def _worst_state(*states: State) -> State:
-    order = {
-        State.OK: 0,
-        State.WARN: 1,
-        State.CRIT: 2,
-        State.UNKNOWN: 3,
-    }
+    order = {State.OK: 0, State.WARN: 1, State.CRIT: 2, State.UNKNOWN: 3}
     return max(states, key=lambda state: order[state])
 
 
-def parse_arcgis_portal_license(
-    string_table: StringTable,
-) -> SectionPortalLicense:
-    raw_rows = raw_section_rows(string_table)
-
-    if looks_like_json_rows(raw_rows):
-        merged_items: list[PortalLicenseEntry] = []
-        summary: PortalLicenseSummary | None = None
-
-        for raw in raw_rows:
-            section = SectionPortalLicense.model_validate_json(raw)
-            summary = section.summary
-            merged_items.extend(section.items)
-
-        return SectionPortalLicense(
-            summary=summary or PortalLicenseSummary(),
-            items=merged_items,
-        )
-
-    # Old text-row fallback
+def parse_arcgis_portal_license(string_table: StringTable) -> SectionPortalLicense:
     summary = PortalLicenseSummary()
     items: list[PortalLicenseEntry] = []
 
-    for row in string_table:
-        if not row:
-            continue
-
-        if row[0] == "summary" and len(row) >= 4:
-            summary = PortalLicenseSummary(
-                current=_parse_int(row[1]),
-                maximum=_parse_int(row[2]),
-                version=row[3],
-            )
-            continue
-
-        if len(row) >= 5:
-            items.append(
-                PortalLicenseEntry(
-                    kind=row[0],
-                    id=row[1],
-                    current=_parse_int(row[2]),
-                    maximum=_parse_int(row[3]),
-                    expiration=_parse_int(row[4]),
-                )
-            )
+    for section in parse_json_rows(string_table, SectionPortalLicense):
+        summary = section.summary
+        items.extend(section.items)
 
     return SectionPortalLicense(summary=summary, items=items)
 
@@ -142,18 +89,24 @@ def check_arcgis_portal_license(item: str, section: SectionPortalLicense) -> Che
         )
         return
 
-    items_by_name = {f"{license_item.kind} {license_item.id}": license_item for license_item in section.items}
+    items_by_name = {
+        f"{license_item.kind} {license_item.id}": license_item
+        for license_item in section.items
+    }
 
-    if item not in items_by_name:
+    license_item = items_by_name.get(item)
+    if license_item is None:
         yield Result(state=State.UNKNOWN, summary="License data missing from agent output")
         return
 
-    license_item = items_by_name[item]
     expiration_state, expiration_text = _expiration_summary(license_item.expiration)
 
     if license_item.maximum > 0:
         usage_percent = license_item.current / license_item.maximum * 100
-        usage_text = f"{license_item.current}/{license_item.maximum} assigned ({usage_percent:.1f}%)"
+        usage_text = (
+            f"{license_item.current}/{license_item.maximum} assigned "
+            f"({usage_percent:.1f}%)"
+        )
 
         if usage_percent >= 95:
             usage_state = State.CRIT

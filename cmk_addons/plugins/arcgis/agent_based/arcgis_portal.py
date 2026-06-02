@@ -9,7 +9,10 @@ from cmk.agent_based.v2 import (
     StringTable,
 )
 
-from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import raw_section_text
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import (
+    parse_json_rows,
+    parse_last_json_row,
+)
 from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     PortalFederatedServerStatus,
     PortalIndexCount,
@@ -17,32 +20,14 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     SectionPortalHealth,
     SectionPortalIndexer,
 )
-from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import (
-    looks_like_json_rows,
-    raw_section_rows,
-)
 
-def parse_arcgis_portal_health(
-    string_table: StringTable,
-) -> SectionPortalHealth:
-    raw_rows = raw_section_rows(string_table)
 
-    if looks_like_json_rows(raw_rows):
-        # If multiple appear, last one wins.
-        section = SectionPortalHealth(status="unknown", role="unknown")
-
-        for raw in raw_rows:
-            section = SectionPortalHealth.model_validate_json(raw)
-
-        return section
-
-    # Old text-row fallback
-    if string_table and len(string_table[0]) >= 1:
-        status = string_table[0][0]
-        role = string_table[0][1] if len(string_table[0]) > 1 else "standalone"
-        return SectionPortalHealth(status=status, role=role)
-
-    return SectionPortalHealth(status="unknown", role="unknown")
+def parse_arcgis_portal_health(string_table: StringTable) -> SectionPortalHealth:
+    return parse_last_json_row(
+        string_table,
+        SectionPortalHealth,
+        SectionPortalHealth(status="unknown", role="unknown"),
+    )
 
 
 def discover_arcgis_portal(section: SectionPortalHealth) -> DiscoveryResult:
@@ -74,59 +59,16 @@ check_plugin_arcgis_portal = CheckPlugin(
 )
 
 
-def _parse_int(value: str, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def parse_arcgis_portal_indexer(
-    string_table: StringTable,
-) -> SectionPortalIndexer:
-    raw_rows = raw_section_rows(string_table)
-
-    if looks_like_json_rows(raw_rows):
-        indexes: list[PortalIndexCount] = []
-        sync_status: bool | None = None
-
-        for raw in raw_rows:
-            section = SectionPortalIndexer.model_validate_json(raw)
-            indexes.extend(section.indexes)
-
-            if section.sync_status is not None:
-                sync_status = section.sync_status
-
-        return SectionPortalIndexer(
-            indexes=indexes,
-            sync_status=sync_status,
-        )
-
-    # Old text-row fallback
+def parse_arcgis_portal_indexer(string_table: StringTable) -> SectionPortalIndexer:
     indexes: list[PortalIndexCount] = []
     sync_status: bool | None = None
 
-    for row in string_table:
-        if not row:
-            continue
+    for section in parse_json_rows(string_table, SectionPortalIndexer):
+        indexes.extend(section.indexes)
+        if section.sync_status is not None:
+            sync_status = section.sync_status
 
-        if row[0] == "syncStatus" and len(row) >= 2:
-            sync_status = row[1].strip().lower() == "true"
-            continue
-
-        if len(row) >= 3:
-            indexes.append(
-                PortalIndexCount(
-                    name=row[0],
-                    database_count=_parse_int(row[1]),
-                    index_count=_parse_int(row[2]),
-                )
-            )
-
-    return SectionPortalIndexer(
-        indexes=indexes,
-        sync_status=sync_status,
-    )
+    return SectionPortalIndexer(indexes=indexes, sync_status=sync_status)
 
 
 def discover_arcgis_portal_indexer(section: SectionPortalIndexer) -> DiscoveryResult:
@@ -137,11 +79,10 @@ def discover_arcgis_portal_indexer(section: SectionPortalIndexer) -> DiscoveryRe
 def check_arcgis_portal_indexer(item: str, section: SectionPortalIndexer) -> CheckResult:
     indexes_by_name = {index.name: index for index in section.indexes}
 
-    if item not in indexes_by_name:
+    index = indexes_by_name.get(item)
+    if index is None:
         yield Result(state=State.UNKNOWN, summary="Index not found in agent output")
         return
-
-    index = indexes_by_name[item]
 
     if index.database_count != index.index_count:
         yield Result(
@@ -191,44 +132,14 @@ check_plugin_arcgis_portal_sync = CheckPlugin(
 )
 
 
-def parse_arcgis_portal_federation(
-    string_table: StringTable,
-) -> SectionPortalFederation:
-    raw_rows = raw_section_rows(string_table)
-
-    if looks_like_json_rows(raw_rows):
-        servers: list[PortalFederatedServerStatus] = []
-        federation_status = "unknown"
-
-        for raw in raw_rows:
-            section = SectionPortalFederation.model_validate_json(raw)
-            servers.extend(section.servers)
-
-            if section.federation_status != "unknown":
-                federation_status = section.federation_status
-
-        return SectionPortalFederation(
-            servers=servers,
-            federation_status=federation_status,
-        )
-
-    # Old text-row fallback
+def parse_arcgis_portal_federation(string_table: StringTable) -> SectionPortalFederation:
     servers: list[PortalFederatedServerStatus] = []
     federation_status = "unknown"
 
-    for row in string_table:
-        if len(row) < 2:
-            continue
-
-        if row[0] == "federationStatus":
-            federation_status = row[1]
-        else:
-            servers.append(
-                PortalFederatedServerStatus(
-                    admin_url=row[0],
-                    status=row[1],
-                )
-            )
+    for section in parse_json_rows(string_table, SectionPortalFederation):
+        servers.extend(section.servers)
+        if section.federation_status != "unknown":
+            federation_status = section.federation_status
 
     return SectionPortalFederation(
         servers=servers,
@@ -251,10 +162,13 @@ def _state_from_federation_status(status: str) -> tuple[State, str]:
         return State.WARN, "warning"
     if normalized in {"error", "failure", "failed"}:
         return State.CRIT, "not healthy"
+
     return State.UNKNOWN, normalized or "unknown"
 
 
-def discover_arcgis_portal_federation_servers(section: SectionPortalFederation) -> DiscoveryResult:
+def discover_arcgis_portal_federation_servers(
+    section: SectionPortalFederation,
+) -> DiscoveryResult:
     for server in section.servers:
         yield Service(item=server.admin_url)
 
@@ -265,14 +179,14 @@ def check_arcgis_portal_federation_servers(
 ) -> CheckResult:
     servers_by_url = {server.admin_url: server for server in section.servers}
 
-    if item not in servers_by_url:
+    server = servers_by_url.get(item)
+    if server is None:
         yield Result(
             state=State.UNKNOWN,
             summary="Federated server missing from agent output",
         )
         return
 
-    server = servers_by_url[item]
     state, text = _state_from_federation_status(server.status)
     yield Result(state=state, summary=f"Federated server is {text}")
 
@@ -286,12 +200,16 @@ check_plugin_arcgis_portal_federation_servers = CheckPlugin(
 )
 
 
-def discover_arcgis_portal_federation_status(section: SectionPortalFederation) -> DiscoveryResult:
+def discover_arcgis_portal_federation_status(
+    section: SectionPortalFederation,
+) -> DiscoveryResult:
     if section.federation_status:
         yield Service()
 
 
-def check_arcgis_portal_federation_status(section: SectionPortalFederation) -> CheckResult:
+def check_arcgis_portal_federation_status(
+    section: SectionPortalFederation,
+) -> CheckResult:
     state, text = _state_from_federation_status(section.federation_status)
     yield Result(state=state, summary=f"Federation is {text}")
 

@@ -14,11 +14,9 @@ from cmk_addons.plugins.arcgis.lib.arcgis_normalize import (
 )
 from cmk_addons.plugins.arcgis.lib.arcgis_output import (
     output_json_piggyback,
-    output_piggyback,
-    output_section,
+    output_json_section,
     portal_license_section,
     server_license_section,
-    output_json_section,
     portal_health_section,
     portal_indexer_section,
     portal_federation_section,
@@ -189,13 +187,11 @@ def collect_server_machines(server_name, server_client: ServerClient, collection
     
 def collect_server_services(server_name, server_client: ServerClient, collection: CollectionStatus) -> None:
     services_data = server_client.get_services()
-    # Output service status in piggyback format
-    # statuses = get_all_service_statuses(server_url, server_token, verify_ssl, services_data)
     service_list = [
         {
             "folderName": "" if svc.get("folderName", "") == "/" else svc.get("folderName", ""),
             "serviceName": svc["serviceName"],
-            "type": svc["type"]
+            "type": svc["type"],
         }
         for svc in services_data
     ]

@@ -11,23 +11,15 @@ from cmk.agent_based.v2 import (
     StringTable,
 )
 
-from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import raw_section_text
+from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import parse_json_rows
 from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     SectionServerLicense,
     ServerLicenseEntry,
 )
-from cmk_addons.plugins.arcgis.lib.arcgis_section_parsing import (
-    looks_like_json_rows,
-    raw_section_rows,
-)
+
 
 def _worst_state(*states: State) -> State:
-    order = {
-        State.OK: 0,
-        State.WARN: 1,
-        State.CRIT: 2,
-        State.UNKNOWN: 3,
-    }
+    order = {State.OK: 0, State.WARN: 1, State.CRIT: 2, State.UNKNOWN: 3}
     return max(states, key=lambda state: order[state])
 
 
@@ -53,70 +45,11 @@ def _expiration_state(expiration_ms: int, can_expire: bool) -> tuple[State, str]
     return State.OK, f"expires on {expiration_text} ({days_left} days)"
 
 
-def _parse_bool(value: str, default: bool = False) -> bool:
-    normalized = str(value).strip().lower()
-    if normalized in {"true", "yes", "1"}:
-        return True
-    if normalized in {"false", "no", "0"}:
-        return False
-    return default
-
-
-def _parse_int(value: str, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def parse_arcgis_server_license(
-    string_table: StringTable,
-) -> SectionServerLicense:
-    raw_rows = raw_section_rows(string_table)
-
-    if looks_like_json_rows(raw_rows):
-        entries: list[ServerLicenseEntry] = []
-
-        for raw in raw_rows:
-            section = SectionServerLicense.model_validate_json(raw)
-            entries.extend(section.entries)
-
-        return SectionServerLicense(entries=entries)
-
-    # Old text-row fallback
+def parse_arcgis_server_license(string_table: StringTable) -> SectionServerLicense:
     entries: list[ServerLicenseEntry] = []
 
-    for row in string_table:
-        if len(row) < 5:
-            continue
-
-        kind = row[0]
-
-        if kind in {"edition", "level", "datafeature", "extension"}:
-            entries.append(
-                ServerLicenseEntry(
-                    kind=kind,
-                    name=row[1],
-                    version=row[2],
-                    can_expire=_parse_bool(row[3]),
-                    expiration=_parse_int(row[4]),
-                    extra=" ".join(row[5:]) if len(row) > 5 else "",
-                )
-            )
-
-        elif kind == "feature" and len(row) >= 8:
-            entries.append(
-                ServerLicenseEntry(
-                    kind=kind,
-                    name=row[1],
-                    display_name=row[2].replace("_", " "),
-                    core_count=_parse_int(row[3]),
-                    version=row[4],
-                    can_expire=_parse_bool(row[5]),
-                    expiration=_parse_int(row[6]),
-                    is_valid=_parse_bool(row[7], default=True),
-                )
-            )
+    for section in parse_json_rows(string_table, SectionServerLicense):
+        entries.extend(section.entries)
 
     return SectionServerLicense(entries=entries)
 
@@ -129,11 +62,10 @@ def discover_arcgis_server_license(section: SectionServerLicense) -> DiscoveryRe
 def check_arcgis_server_license(item: str, section: SectionServerLicense) -> CheckResult:
     entries_by_item = {f"{entry.kind} {entry.name}": entry for entry in section.entries}
 
-    if item not in entries_by_item:
+    license_item = entries_by_item.get(item)
+    if license_item is None:
         yield Result(state=State.UNKNOWN, summary="License data missing from agent output")
         return
-
-    license_item = entries_by_item[item]
 
     expiration_state, expiration_text = _expiration_state(
         license_item.expiration,
@@ -157,9 +89,15 @@ def check_arcgis_server_license(item: str, section: SectionServerLicense) -> Che
                 f"{license_item.core_count} licensed core(s), {expiration_text}"
             )
         else:
-            summary = f"{display_name}: {validity_text}, version {license_item.version}, {expiration_text}"
+            summary = (
+                f"{display_name}: {validity_text}, version {license_item.version}, "
+                f"{expiration_text}"
+            )
     else:
-        summary = f"{license_item.kind} {license_item.name}: version {license_item.version}, {expiration_text}"
+        summary = (
+            f"{license_item.kind} {license_item.name}: "
+            f"version {license_item.version}, {expiration_text}"
+        )
 
     yield Result(state=final_state, summary=summary)
 
