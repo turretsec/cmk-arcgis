@@ -220,3 +220,6 @@ __marimo__/
 scripts/*
 docker-compose.yml
 .vscode/*
+*.zip
+*.patch
+*:Zone.Identifier
