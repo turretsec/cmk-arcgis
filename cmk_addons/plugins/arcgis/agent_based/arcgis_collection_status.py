@@ -1,3 +1,6 @@
+from collections.abc import Mapping
+from typing import Any
+
 from cmk.agent_based.v2 import (
     AgentSection,
     CheckPlugin,
@@ -14,6 +17,55 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     CollectionStatusEntry,
     SectionCollectionStatus,
 )
+from cmk_addons.plugins.arcgis.lib.arcgis_check_helpers import (
+    param_str,
+    state_from_param,
+    worst_state,
+)
+
+def _param_str(params: Mapping[str, Any], key: str) -> str:
+    return param_str(params, DEFAULT_COLLECTION_STATUS_PARAMS, key)
+
+
+DEFAULT_COLLECTION_STATUS_PARAMS = {
+    "warning_state": "warn",
+    "skipped_state": "warn",
+    "error_state": "crit",
+    "unknown_state": "unknown",
+}
+
+
+def _state_for_collection_status(
+    status: str,
+    params: Mapping[str, Any],
+) -> State:
+    normalized = status.strip().upper()
+
+    if normalized in {"OK", "SUCCESS"}:
+        return State.OK
+
+    if normalized in {"WARN", "WARNING"}:
+        return state_from_param(_param_str(params, "warning_state"))
+
+    if normalized in {"SKIP", "SKIPPED"}:
+        return state_from_param(_param_str(params, "skipped_state"))
+
+    if normalized in {"ERROR", "FAILURE", "FAILED"}:
+        return state_from_param(_param_str(params, "error_state"))
+
+    return state_from_param(_param_str(params, "unknown_state"))
+
+
+def _entry_detail(entry: CollectionStatusEntry) -> str:
+    parts = [
+        f"{entry.component}:{entry.target}",
+        entry.status,
+    ]
+
+    if entry.message:
+        parts.append(entry.message)
+
+    return " ".join(parts)
 
 
 def parse_arcgis_collection_status(string_table: StringTable) -> SectionCollectionStatus:
@@ -30,38 +82,70 @@ def discover_arcgis_collection_status(section: SectionCollectionStatus) -> Disco
         yield Service()
 
 
-def check_arcgis_collection_status(section: SectionCollectionStatus) -> CheckResult:
+def check_arcgis_collection_status(
+    params: Mapping[str, Any],
+    section: SectionCollectionStatus,
+) -> CheckResult:
     if not section.entries:
-        yield Result(state=State.UNKNOWN, summary="No collection status found")
+        yield Result(
+            state=state_from_param(_param_str(params, "unknown_state")),
+            summary="No collection status found",
+        )
         return
 
-    errors = [entry for entry in section.entries if entry.status.upper() == "ERROR"]
-    warnings = [entry for entry in section.entries if entry.status.upper() == "WARN"]
-    skips = [entry for entry in section.entries if entry.status.upper() == "SKIP"]
+    entry_states = [
+        _state_for_collection_status(entry.status, params)
+        for entry in section.entries
+    ]
 
+    final_state = worst_state(*entry_states)
+
+    problem_entries = [
+        entry
+        for entry, state in zip(section.entries, entry_states)
+        if state != State.OK
+    ]
+
+    if not problem_entries:
+        yield Result(
+            state=State.OK,
+            summary=f"{len(section.entries)} collection step(s) OK",
+        )
+        return
+
+    errors = [
+        entry for entry in section.entries
+        if entry.status.strip().upper() in {"ERROR", "FAILURE", "FAILED"}
+    ]
+    warnings = [
+        entry for entry in section.entries
+        if entry.status.strip().upper() in {"WARN", "WARNING"}
+    ]
+    skips = [
+        entry for entry in section.entries
+        if entry.status.strip().upper() in {"SKIP", "SKIPPED"}
+    ]
+    unknowns = [
+        entry for entry in section.entries
+        if entry.status.strip().upper()
+        not in {"OK", "SUCCESS", "WARN", "WARNING", "SKIP", "SKIPPED", "ERROR", "FAILURE", "FAILED"}
+    ]
+
+    summary_parts = []
     if errors:
-        yield Result(
-            state=State.CRIT,
-            summary=f"{len(errors)} collection error(s)",
-            details="; ".join(
-                f"{entry.component}:{entry.target} {entry.message}" for entry in errors
-            ),
-        )
-        return
+        summary_parts.append(f"{len(errors)} error(s)")
+    if warnings:
+        summary_parts.append(f"{len(warnings)} warning(s)")
+    if skips:
+        summary_parts.append(f"{len(skips)} skipped step(s)")
+    if unknowns:
+        summary_parts.append(f"{len(unknowns)} unknown status step(s)")
 
-    if warnings or skips:
-        problem_entries = warnings + skips
-        yield Result(
-            state=State.WARN,
-            summary=f"{len(problem_entries)} collection warning/skipped step(s)",
-            details="; ".join(
-                f"{entry.component}:{entry.target} {entry.status} {entry.message}"
-                for entry in problem_entries
-            ),
-        )
-        return
-
-    yield Result(state=State.OK, summary=f"{len(section.entries)} collection step(s) OK")
+    yield Result(
+        state=final_state,
+        summary="Collection status: " + ", ".join(summary_parts),
+        details="; ".join(_entry_detail(entry) for entry in problem_entries),
+    )
 
 
 agent_section_arcgis_collection_status = AgentSection(
@@ -69,9 +153,12 @@ agent_section_arcgis_collection_status = AgentSection(
     parse_function=parse_arcgis_collection_status,
 )
 
+
 check_plugin_arcgis_collection_status = CheckPlugin(
     name="arcgis_collection_status",
     service_name="ArcGIS Collection Status",
     discovery_function=discover_arcgis_collection_status,
     check_function=check_arcgis_collection_status,
+    check_default_parameters=DEFAULT_COLLECTION_STATUS_PARAMS,
+    check_ruleset_name="arcgis_collection_status",
 )

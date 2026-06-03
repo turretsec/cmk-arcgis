@@ -1,4 +1,6 @@
-from datetime import datetime, timezone
+import time
+from collections.abc import Mapping
+from typing import Any
 
 from cmk.agent_based.v2 import (
     AgentSection,
@@ -16,33 +18,88 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     SectionServerLicense,
     ServerLicenseEntry,
 )
+from cmk_addons.plugins.arcgis.lib.arcgis_check_helpers import (
+    param_str,
+    param_int,
+    state_from_param,
+    worst_state,
+)
 
 
-def _worst_state(*states: State) -> State:
-    order = {State.OK: 0, State.WARN: 1, State.CRIT: 2, State.UNKNOWN: 3}
-    return max(states, key=lambda state: order[state])
+DEFAULT_SERVER_LICENSE_PARAMS = {
+    "expiration_warn_days": 90,
+    "expiration_crit_days": 30,
+    "expired_state": "crit",
+    "invalid_feature_state": "crit",
+    "unknown_expiration_state": "unknown",
+    "missing_license_state": "unknown",
+}
 
 
-def _expiration_state(expiration_ms: int, can_expire: bool) -> tuple[State, str]:
-    if not can_expire:
+def _param_str(params: Mapping[str, Any], key: str) -> str:
+    return param_str(params, DEFAULT_SERVER_LICENSE_PARAMS, key)
+
+
+def _param_int(params: Mapping[str, Any], key: str) -> int:
+    return param_int(params, DEFAULT_SERVER_LICENSE_PARAMS, key)
+
+
+def _days_until_expiration(expiration_ms: int) -> int | None:
+    if expiration_ms <= 0:
+        return None
+
+    now_ms = int(time.time() * 1000)
+    return int((expiration_ms - now_ms) / 86_400_000)
+
+
+def _expiration_summary(
+    license_item: ServerLicenseEntry,
+    params: Mapping[str, Any],
+) -> tuple[State, str]:
+    if not license_item.can_expire:
         return State.OK, "does not expire"
 
-    if expiration_ms <= 0:
-        return State.UNKNOWN, "expiration unknown"
+    days = _days_until_expiration(license_item.expiration)
 
-    now = datetime.now(timezone.utc)
-    expiration = datetime.fromtimestamp(expiration_ms / 1000, tz=timezone.utc)
-    days_left = (expiration - now).days
-    expiration_text = expiration.strftime("%Y-%m-%d")
+    if days is None:
+        return (
+            state_from_param(_param_str(params, "unknown_expiration_state")),
+            "expiration unknown",
+        )
 
-    if days_left < 0:
-        return State.CRIT, f"expired on {expiration_text}"
-    if days_left <= 7:
-        return State.CRIT, f"expires on {expiration_text} ({days_left} days)"
-    if days_left <= 30:
-        return State.WARN, f"expires on {expiration_text} ({days_left} days)"
+    if days < 0:
+        return (
+            state_from_param(_param_str(params, "expired_state")),
+            f"expired {-days} days ago",
+        )
 
-    return State.OK, f"expires on {expiration_text} ({days_left} days)"
+    warn = _param_int(params, "expiration_warn_days")
+    crit = _param_int(params, "expiration_crit_days")
+
+    if days <= crit:
+        state = State.CRIT
+    elif days <= warn:
+        state = State.WARN
+    else:
+        state = State.OK
+
+    return state, f"expires in {days} days"
+
+
+def _validity_summary(
+    license_item: ServerLicenseEntry,
+    params: Mapping[str, Any],
+) -> tuple[State, str | None]:
+    if license_item.kind != "feature":
+        return State.OK, None
+
+    if license_item.is_valid:
+        return State.OK, "valid"
+
+    return (
+        state_from_param(_param_str(params, "invalid_feature_state")),
+        "invalid",
+    )
 
 
 def parse_arcgis_server_license(string_table: StringTable) -> SectionServerLicense:
@@ -59,47 +116,60 @@ def discover_arcgis_server_license(section: SectionServerLicense) -> DiscoveryRe
         yield Service(item=f"{entry.kind} {entry.name}")
 
 
-def check_arcgis_server_license(item: str, section: SectionServerLicense) -> CheckResult:
-    entries_by_item = {f"{entry.kind} {entry.name}": entry for entry in section.entries}
+def check_arcgis_server_license(
+    item: str,
+    params: Mapping[str, Any],
+    section: SectionServerLicense,
+) -> CheckResult:
+    entries_by_item = {
+        f"{entry.kind} {entry.name}": entry
+        for entry in section.entries
+    }
 
     license_item = entries_by_item.get(item)
     if license_item is None:
-        yield Result(state=State.UNKNOWN, summary="License data missing from agent output")
+        yield Result(
+            state=state_from_param(_param_str(params, "missing_license_state")),
+            summary="License data missing from agent output",
+        )
         return
 
-    expiration_state, expiration_text = _expiration_state(
-        license_item.expiration,
-        license_item.can_expire,
+    expiration_state, expiration_text = _expiration_summary(
+        license_item,
+        params,
     )
 
-    if not license_item.is_valid:
-        validity_state = State.CRIT
-        validity_text = "invalid"
-    else:
-        validity_state = State.OK
-        validity_text = "valid"
+    validity_state, validity_text = _validity_summary(
+        license_item,
+        params,
+    )
 
-    final_state = _worst_state(expiration_state, validity_state)
-    display_name = license_item.display_name or license_item.name
+    final_state = worst_state(expiration_state, validity_state)
 
-    if license_item.kind == "feature":
-        if license_item.core_count > 0:
-            summary = (
-                f"{display_name}: {validity_text}, version {license_item.version}, "
-                f"{license_item.core_count} licensed core(s), {expiration_text}"
-            )
-        else:
-            summary = (
-                f"{display_name}: {validity_text}, version {license_item.version}, "
-                f"{expiration_text}"
-            )
-    else:
-        summary = (
-            f"{license_item.kind} {license_item.name}: "
-            f"version {license_item.version}, {expiration_text}"
-        )
+    summary_parts = [
+        f"{license_item.kind} {license_item.name}",
+        expiration_text,
+    ]
 
-    yield Result(state=final_state, summary=summary)
+    if validity_text:
+        summary_parts.append(validity_text)
+
+    if license_item.display_name:
+        summary_parts.append(license_item.display_name)
+
+    if license_item.version:
+        summary_parts.append(f"version {license_item.version}")
+
+    if license_item.core_count:
+        summary_parts.append(f"{license_item.core_count} cores")
+
+    if license_item.extra:
+        summary_parts.append(license_item.extra)
+
+    yield Result(
+        state=final_state,
+        summary=", ".join(summary_parts),
+    )
 
 
 agent_section_arcgis_server_license = AgentSection(
@@ -107,9 +177,12 @@ agent_section_arcgis_server_license = AgentSection(
     parse_function=parse_arcgis_server_license,
 )
 
+
 check_plugin_arcgis_server_license = CheckPlugin(
     name="arcgis_server_license",
     service_name="ArcGIS Server License %s",
     discovery_function=discover_arcgis_server_license,
     check_function=check_arcgis_server_license,
+    check_default_parameters=DEFAULT_SERVER_LICENSE_PARAMS,
+    check_ruleset_name="arcgis_server_license",
 )

@@ -14,7 +14,6 @@ from cmk.rulesets.v1.form_specs import (
 )
 from cmk.rulesets.v1.rule_specs import SpecialAgent, Topic
 
-
 def _parameter_form() -> Dictionary:
     return Dictionary(
         elements={
@@ -38,7 +37,7 @@ def _parameter_form() -> Dictionary:
                     help_text=Help("Base URL of your Portal e.g. https://portal.example.com/arcgis"),
                     field_size=FieldSize.LARGE,
                 ),
-                required=False,
+                required=True,
             ),
             "verify_ssl": DictElement(
                 parameter_form=BooleanChoice(
