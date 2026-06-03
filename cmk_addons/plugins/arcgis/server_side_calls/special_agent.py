@@ -9,6 +9,9 @@ from cmk.server_side_calls.v1 import (
     SpecialAgentConfig,
 )
 
+class ServerFilterParams(BaseModel):
+    include_patterns: list[str] = Field(default_factory=list)
+    exclude_patterns: list[str] = Field(default_factory=list)
 
 class CacheIntervalParams(BaseModel):
     portal_federation: int = Field(default=300, ge=0)
@@ -43,6 +46,18 @@ class Params(BaseModel):
     token_expiry: int = 60
     collections: CollectionParams = Field(default_factory=CollectionParams)
     cache_intervals: CacheIntervalParams = Field(default_factory=CacheIntervalParams)
+    server_filter: ServerFilterParams = Field(default_factory=ServerFilterParams)
+
+
+def _append_server_filter_args(
+    args: list[str | Secret],
+    server_filter: ServerFilterParams,
+) -> None:
+    for pattern in server_filter.include_patterns:
+        args.extend(["--server-include-regex", pattern])
+
+    for pattern in server_filter.exclude_patterns:
+        args.extend(["--server-exclude-regex", pattern])
 
 
 def _append_cache_interval_args(
@@ -114,6 +129,7 @@ def _generate_arcgis_command(
 
     _append_disabled_collection_flags(args, params.collections)
     _append_cache_interval_args(args, params.cache_intervals)
+    _append_server_filter_args(args, params.server_filter)
 
     args.append(host_config.name)
 

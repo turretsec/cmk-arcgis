@@ -2,6 +2,7 @@ import argparse
 import logging
 import sys
 import urllib3
+import re
 
 from cmk_addons.plugins.arcgis.lib.arcgis_client import (
     ArcGISTokenProvider,
@@ -25,7 +26,6 @@ from cmk_addons.plugins.arcgis.lib.arcgis_output import (
     arcgis_server_machines_section,
     log_settings_section,
 )
-
 from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     RegisteredDatastoreValidation,
     SectionRegisteredDatastoreValidation,
@@ -162,8 +162,85 @@ def parse_arguments(argv):
     parser.add_argument("--no-managed-datastores", action="store_true")
     parser.add_argument("--no-server-license", action="store_true")
     parser.add_argument("--no-server-log-settings", action="store_true")
+    parser.add_argument(
+        "--server-include-regex",
+        action="append",
+        default=[],
+        help=(
+            "Only collect federated servers whose name, URL, or admin URL matches "
+            "this regular expression. Can be specified multiple times."
+        ),
+    )
+    parser.add_argument(
+        "--server-exclude-regex",
+        action="append",
+        default=[],
+        help=(
+            "Do not collect federated servers whose name, URL, or admin URL matches "
+            "this regular expression. Can be specified multiple times. Excludes win over includes."
+        ),
+    )
     parser.add_argument("hostname", help="Target hostname")
     return parser.parse_args(argv)
+
+
+def _server_filter_text(server: dict) -> str:
+    values = [
+        str(server.get("name", "")),
+        str(server.get("url", "")),
+        str(server.get("adminUrl", "")),
+        str(server.get("admin_url", "")),
+    ]
+
+    return " ".join(value for value in values if value)
+
+
+def _matches_any_regex(
+    text: str,
+    patterns: list[str],
+) -> bool:
+    return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+
+
+def federated_server_is_included(
+    server: dict,
+    include_patterns: list[str],
+    exclude_patterns: list[str],
+) -> bool:
+    text = _server_filter_text(server)
+
+    if exclude_patterns and _matches_any_regex(text, exclude_patterns):
+        LOGGER.info(
+            "Excluding federated server by exclude regex: %s",
+            text,
+        )
+        return False
+
+    if include_patterns and not _matches_any_regex(text, include_patterns):
+        LOGGER.info(
+            "Excluding federated server because it does not match include regex: %s",
+            text,
+        )
+        return False
+
+    return True
+
+
+def filter_federated_servers(
+    servers: list[dict],
+    include_patterns: list[str],
+    exclude_patterns: list[str],
+) -> list[dict]:
+    return [
+        server
+        for server in servers
+        if federated_server_is_included(
+            server,
+            include_patterns,
+            exclude_patterns,
+        )
+    ]
+
 
 def cache_interval(value: int) -> int | None:
     if value <= 0:
@@ -341,6 +418,12 @@ def collect_portal(
         LOGGER.info("Collecting portal federated servers")
         federated_servers = portal_client.get_federated_servers()
         LOGGER.debug("Federated servers: %s", federated_servers)
+        federated_servers = filter_federated_servers(
+            federated_servers,
+            args.server_include_regex,
+            args.server_exclude_regex,
+        )
+        LOGGER.debug("Filtered federated servers: %s", federated_servers)
         collection.ok("federated_servers", "portal")
         return federated_servers
     except Exception as e:
