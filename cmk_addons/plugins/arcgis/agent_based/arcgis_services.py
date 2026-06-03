@@ -17,6 +17,11 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     ArcGISServiceState,
     SectionArcGISServices,
 )
+from cmk_addons.plugins.arcgis.lib.arcgis_check_helpers import (
+    param_str,
+    state_from_param,
+)
+
 
 DEFAULT_SERVICE_PARAMS = {
     "started_not_started_state": "crit",
@@ -27,40 +32,11 @@ DEFAULT_SERVICE_PARAMS = {
     "unknown_state": "unknown",
 }
 
-def _state_from_param(value: str) -> State:
-    return {
-        "ok": State.OK,
-        "warn": State.WARN,
-        "crit": State.CRIT,
-        "unknown": State.UNKNOWN,
-    }.get(value, State.UNKNOWN)
-
-def _state_from_service_status(
-    configured_state: str,
-    realtime_state: str,
-) -> State:
-    configured = configured_state.strip().upper()
-    realtime = realtime_state.strip().upper()
-
-    if configured == "STARTED" and realtime == "STARTED":
-        return State.OK
-    if configured == "STOPPED" and realtime == "STOPPED":
-        return State.OK
-    if configured == "STARTED" and realtime != "STARTED":
-        return State.CRIT
-    if configured != realtime:
-        return State.WARN
-
-    return State.UNKNOWN
-
-
-_SERVICE_STATES = {
-    "STARTED": State.OK,
-    "STOPPED": State.CRIT,
-    "STARTING": State.WARN,
-    "STOPPING": State.WARN,
-    "FAILED": State.CRIT,
-}
+def _param_str(
+    params: Mapping[str, Any],
+    key: str,
+) -> str:
+    return param_str(params, DEFAULT_SERVICE_PARAMS, key)
 
 
 def parse_arcgis_services(string_table: StringTable) -> SectionArcGISServices:
@@ -85,10 +61,6 @@ def check_arcgis_services(item: str, params: Mapping[str, Any], section: Section
         yield Result(state=State.UNKNOWN, summary="Service missing from agent output")
         return
 
-    state = _state_from_service_status(
-        service.configured_state,
-        service.realtime_state,
-    )
     configured = service.configured_state.strip().upper()
     realtime = service.realtime_state.strip().upper()
 
@@ -98,41 +70,41 @@ def check_arcgis_services(item: str, params: Mapping[str, Any], section: Section
 
     if configured == "STOPPED" and realtime == "STOPPED":
         yield Result(
-            state=_state_from_param(params["stopped_stopped_state"]),
+            state=state_from_param(_param_str(params, "stopped_stopped_state")),
             summary="Service is intentionally stopped",
         )
         return
 
     if configured == "STARTED" and realtime != "STARTED":
         yield Result(
-            state=_state_from_param(params["started_not_started_state"]),
+            state=state_from_param(_param_str(params, "started_not_started_state")),
             summary=f"Configured STARTED but realtime state is {realtime}",
         )
         return
 
     if configured == "STOPPED" and realtime != "STOPPED":
         yield Result(
-            state=_state_from_param(params["stopped_not_stopped_state"]),
+            state=state_from_param(_param_str(params, "stopped_not_stopped_state")),
             summary=f"Configured STOPPED but realtime state is {realtime}",
         )
         return
 
     if realtime in {"STARTING", "STOPPING"}:
         yield Result(
-            state=_state_from_param(params["transitional_state"]),
+            state=state_from_param(_param_str(params, "transitional_state")),
             summary=f"Service is {realtime}",
         )
         return
 
     if realtime in {"FAILED", "FAILURE"}:
         yield Result(
-            state=_state_from_param(params["failed_state"]),
+            state=state_from_param(_param_str(params, "failed_state")),
             summary=f"Service is {realtime}",
         )
         return
 
     yield Result(
-        state=_state_from_param(params["unknown_state"]),
+        state=state_from_param(_param_str(params, "unknown_state")),
         summary=f"Configured {configured}, realtime {realtime}",
     )
 

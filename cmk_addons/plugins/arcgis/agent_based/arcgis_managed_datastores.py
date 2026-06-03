@@ -1,3 +1,6 @@
+from collections.abc import Mapping
+from typing import Any
+
 from cmk.agent_based.v2 import (
     AgentSection,
     CheckPlugin,
@@ -14,32 +17,10 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     ManagedDatastoreValidation,
     SectionManagedDatastoreValidation,
 )
-
-
-def _state_from_managed_datastore_classification(
-    classification: str,
-    message: str,
-) -> State:
-    normalized = classification.strip().lower()
-    lowered_message = message.strip().lower()
-
-    if normalized in {"success", "ok", "passed", "healthy", "true"}:
-        return State.OK
-    if normalized in {"warning", "warn", "healthywithwarning", "success_with_warnings"}:
-        return State.WARN
-    if normalized in {"failure", "failed", "unhealthy", "stopped", "false"}:
-        return State.CRIT
-    if normalized == "unsupported":
-        return State.OK
-    if normalized == "error":
-        if (
-            "could not find resource or operation 'validate'" in lowered_message
-            or "not installed in the current configuration" in lowered_message
-        ):
-            return State.OK
-        return State.UNKNOWN
-
-    return State.UNKNOWN
+from cmk_addons.plugins.arcgis.lib.arcgis_check_datastore_common import (
+    state_for_datastore_status,
+    DEFAULT_DATASTORE_VALIDATION_PARAMS,
+)
 
 
 def parse_arcgis_managed_datastore_validation(
@@ -62,41 +43,50 @@ def discover_arcgis_managed_datastore_validation(
 
 def check_arcgis_managed_datastore_validation(
     item: str,
+    params: Mapping[str, Any],
     section: SectionManagedDatastoreValidation,
 ) -> CheckResult:
-    validations_by_item = {validation.path: validation for validation in section.validations}
+    validations_by_item = {
+        validation.path: validation
+        for validation in section.validations
+    }
 
-    validation = validations_by_item.get(item)
-    if validation is None:
+    if item not in validations_by_item:
         yield Result(
-            state=State.UNKNOWN,
+            state=state_for_datastore_status("unknown", params),
             summary="Managed datastore missing from agent output",
         )
         return
 
-    state = _state_from_managed_datastore_classification(
-        validation.classification,
-        validation.message,
-    )
+    validation = validations_by_item[item]
+    state = state_for_datastore_status(validation.classification, params)
+
     normalized = validation.classification.strip().lower()
 
-    if normalized == "success":
+    if normalized in {"success", "ok", "passed", "true"}:
         summary = "Managed datastore validation successful"
-    elif normalized == "unsupported":
-        summary = "Managed datastore type is not installed or not supported by this validation method"
+    elif normalized in {"unsupported", "not_supported", "not supported"}:
+        summary = "Managed datastore validation unsupported"
+    elif normalized in {"failure", "failed", "false"}:
+        summary = "Managed datastore validation failed"
     elif normalized == "error":
         summary = "Managed datastore validation returned an error"
-    elif normalized in {"failure", "failed"}:
-        summary = "Managed datastore validation failed"
     elif normalized in {"warning", "warn"}:
         summary = "Managed datastore validation warning"
     else:
         summary = f"Managed datastore validation status: {validation.classification}"
 
     if validation.message:
-        yield Result(state=state, summary=summary, details=validation.message)
+        yield Result(
+            state=state,
+            summary=summary,
+            details=validation.message,
+        )
     else:
-        yield Result(state=state, summary=summary)
+        yield Result(
+            state=state,
+            summary=summary,
+        )
 
 
 agent_section_arcgis_managed_datastore_validation = AgentSection(
@@ -104,9 +94,12 @@ agent_section_arcgis_managed_datastore_validation = AgentSection(
     parse_function=parse_arcgis_managed_datastore_validation,
 )
 
+
 check_plugin_arcgis_managed_datastore_validation = CheckPlugin(
     name="arcgis_managed_datastore_validation",
     service_name="ArcGIS Managed Datastore %s",
     discovery_function=discover_arcgis_managed_datastore_validation,
     check_function=check_arcgis_managed_datastore_validation,
+    check_default_parameters=DEFAULT_DATASTORE_VALIDATION_PARAMS,
+    check_ruleset_name="arcgis_datastore_validation",
 )

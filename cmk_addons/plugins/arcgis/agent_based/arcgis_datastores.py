@@ -1,3 +1,6 @@
+from collections.abc import Mapping
+from typing import Any
+
 from cmk.agent_based.v2 import (
     AgentSection,
     CheckPlugin,
@@ -14,19 +17,10 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     RegisteredDatastoreValidation,
     SectionRegisteredDatastoreValidation,
 )
-
-
-def _state_from_registered_datastore_status(status: str) -> State:
-    normalized = status.strip().lower()
-
-    if normalized in {"success", "passed", "ok", "true"}:
-        return State.OK
-    if normalized in {"warning", "warn", "success with warnings"}:
-        return State.WARN
-    if normalized in {"failure", "failed", "error", "false"}:
-        return State.CRIT
-
-    return State.UNKNOWN
+from cmk_addons.plugins.arcgis.lib.arcgis_check_datastore_common import (
+    state_for_datastore_status,
+    DEFAULT_DATASTORE_VALIDATION_PARAMS,
+)
 
 
 def parse_arcgis_registered_datastore_validation(
@@ -55,22 +49,27 @@ def discover_arcgis_registered_datastore_validation(
 
 def check_arcgis_registered_datastore_validation(
     item: str,
+    params: Mapping[str, Any],
     section: SectionRegisteredDatastoreValidation,
 ) -> CheckResult:
     validations_by_item = {
-        _service_item(validation): validation for validation in section.validations
+        _service_item(validation): validation
+        for validation in section.validations
     }
 
     validation = validations_by_item.get(item)
     if validation is None:
         yield Result(
-            state=State.UNKNOWN,
+            state=state_for_datastore_status("unknown", params),
             summary="Registered datastore missing from agent output",
         )
         return
 
-    state = _state_from_registered_datastore_status(validation.status)
+    state = state_for_datastore_status(validation.status, params)
     summary = f"{validation.store_type} validation {validation.status}"
+
+    if validation.machine:
+        summary += f" on {validation.machine}"
 
     if validation.message:
         yield Result(state=state, summary=summary, details=validation.message)
@@ -88,4 +87,6 @@ check_plugin_arcgis_registered_datastore_validation = CheckPlugin(
     service_name="ArcGIS Registered Datastore %s",
     discovery_function=discover_arcgis_registered_datastore_validation,
     check_function=check_arcgis_registered_datastore_validation,
+    check_default_parameters=DEFAULT_DATASTORE_VALIDATION_PARAMS,
+    check_ruleset_name="arcgis_datastore_validation",
 )

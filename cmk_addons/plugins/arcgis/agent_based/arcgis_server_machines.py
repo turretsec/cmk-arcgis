@@ -1,3 +1,6 @@
+from collections.abc import Mapping
+from typing import Any
+
 from cmk.agent_based.v2 import (
     AgentSection,
     CheckPlugin,
@@ -15,21 +18,62 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     SectionArcGISServerMachines,
 )
 
+DEFAULT_SERVER_MACHINE_PARAMS = {
+    "started_not_started_state": "crit",
+    "stopped_stopped_state": "warn",
+    "stopped_not_stopped_state": "warn",
+    "transitional_state": "warn",
+    "unknown_state": "unknown",
+}
+from cmk_addons.plugins.arcgis.lib.arcgis_check_helpers import (
+    param_str,
+    state_from_param,
+)
 
-def _state_from_machine_status(configured_state: str, realtime_state: str) -> State:
+
+def _param_str(params: Mapping[str, Any], key: str) -> str:
+    return param_str(params, DEFAULT_SERVER_MACHINE_PARAMS, key)
+
+
+def _state_for_machine(
+    configured_state: str,
+    realtime_state: str,
+    params: Mapping[str, Any],
+) -> tuple[State, str]:
     configured = configured_state.strip().upper()
     realtime = realtime_state.strip().upper()
 
     if configured == "STARTED" and realtime == "STARTED":
-        return State.OK
-    if configured == "STOPPED" and realtime == "STOPPED":
-        return State.WARN
-    if configured == "STARTED" and realtime != "STARTED":
-        return State.CRIT
-    if configured != realtime:
-        return State.WARN
+        return State.OK, "Machine is running"
 
-    return State.UNKNOWN
+    if configured == "STARTED" and realtime != "STARTED":
+        return (
+            state_from_param(_param_str(params, "started_not_started_state")),
+            f"Configured STARTED but realtime state is {realtime}",
+        )
+
+    if configured == "STOPPED" and realtime == "STOPPED":
+        return (
+            state_from_param(_param_str(params, "stopped_stopped_state")),
+            "Machine is stopped",
+        )
+
+    if configured == "STOPPED" and realtime != "STOPPED":
+        return (
+            state_from_param(_param_str(params, "stopped_not_stopped_state")),
+            f"Configured STOPPED but realtime state is {realtime}",
+        )
+
+    if realtime in {"STARTING", "STOPPING"}:
+        return (
+            state_from_param(_param_str(params, "transitional_state")),
+            f"Machine is {realtime}",
+        )
+
+    return (
+        state_from_param(_param_str(params, "unknown_state")),
+        f"Configured {configured}, realtime {realtime}",
+    )
 
 
 def parse_arcgis_server_machines(
@@ -52,19 +96,32 @@ def discover_arcgis_server_machines(
 
 def check_arcgis_server_machines(
     item: str,
+    params: Mapping[str, Any],
     section: SectionArcGISServerMachines,
 ) -> CheckResult:
-    machines_by_name = {machine.name: machine for machine in section.machines}
+    machines_by_name = {
+        machine.name: machine
+        for machine in section.machines
+    }
 
-    machine = machines_by_name.get(item)
-    if machine is None:
-        yield Result(state=State.UNKNOWN, summary="Server machine missing from agent output")
+    if item not in machines_by_name:
+        yield Result(
+            state=State.UNKNOWN,
+            summary="Machine missing from agent output",
+        )
         return
 
-    state = _state_from_machine_status(machine.configured_state, machine.realtime_state)
+    machine = machines_by_name[item]
+
+    state, summary = _state_for_machine(
+        machine.configured_state,
+        machine.realtime_state,
+        params,
+    )
+
     yield Result(
         state=state,
-        summary=f"configured {machine.configured_state}, real-time {machine.realtime_state}",
+        summary=summary,
     )
 
 
@@ -78,4 +135,6 @@ check_plugin_arcgis_server_machines = CheckPlugin(
     service_name="ArcGIS Server Machine %s",
     discovery_function=discover_arcgis_server_machines,
     check_function=check_arcgis_server_machines,
+    check_default_parameters=DEFAULT_SERVER_MACHINE_PARAMS,
+    check_ruleset_name="arcgis_server_machines",
 )

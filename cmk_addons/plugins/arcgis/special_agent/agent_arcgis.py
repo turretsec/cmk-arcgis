@@ -132,7 +132,7 @@ def collect_portal(
     try:
         LOGGER.info("Collecting portal machines")
         portal_machines = portal_client.get_portal_machines()
-        LOGGER.debug(f"Portal machines: %s", portal_machines)
+        LOGGER.debug("Portal machines: %s", portal_machines)
         all_machine_names = [
             machine["machineName"]
             for machine in portal_machines

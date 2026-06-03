@@ -1,3 +1,6 @@
+from collections.abc import Callable, Mapping
+from typing import Any
+
 from cmk.agent_based.v2 import (
     AgentSection,
     CheckPlugin,
@@ -20,6 +23,30 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     SectionPortalHealth,
     SectionPortalIndexer,
 )
+from cmk_addons.plugins.arcgis.lib.arcgis_check_helpers import (
+    param_str,
+    state_from_param,
+)
+
+
+DEFAULT_PORTAL_INDEXER_PARAMS = {
+    "mismatch_state": "crit",
+    "missing_index_state": "unknown",
+}
+
+
+DEFAULT_PORTAL_INDEXER_SYNC_PARAMS = {
+    "sync_false_state": "crit",
+    "sync_unknown_state": "unknown",
+}
+
+
+def _indexer_param_str(params: Mapping[str, Any], key: str) -> str:
+    return param_str(params, DEFAULT_PORTAL_INDEXER_PARAMS, key)
+
+
+def _indexer_sync_param_str(params: Mapping[str, Any], key: str) -> str:
+    return param_str(params, DEFAULT_PORTAL_INDEXER_SYNC_PARAMS, key)
 
 
 def parse_arcgis_portal_health(string_table: StringTable) -> SectionPortalHealth:
@@ -51,6 +78,7 @@ agent_section_arcgis_portal = AgentSection(
     parse_function=parse_arcgis_portal_health,
 )
 
+
 check_plugin_arcgis_portal = CheckPlugin(
     name="arcgis_portal_health",
     service_name="ArcGIS Portal Health",
@@ -76,24 +104,42 @@ def discover_arcgis_portal_indexer(section: SectionPortalIndexer) -> DiscoveryRe
         yield Service(item=index.name)
 
 
-def check_arcgis_portal_indexer(item: str, section: SectionPortalIndexer) -> CheckResult:
-    indexes_by_name = {index.name: index for index in section.indexes}
+def check_arcgis_portal_indexer(
+    item: str,
+    params: Mapping[str, Any],
+    section: SectionPortalIndexer,
+) -> CheckResult:
+    indexes_by_name = {
+        index.name: index
+        for index in section.indexes
+    }
 
     index = indexes_by_name.get(item)
     if index is None:
-        yield Result(state=State.UNKNOWN, summary="Index not found in agent output")
+        yield Result(
+            state=state_from_param(
+                _indexer_param_str(params, "missing_index_state")
+            ),
+            summary="Index missing from agent output",
+        )
         return
 
-    if index.database_count != index.index_count:
+    if index.database_count == index.index_count:
         yield Result(
-            state=State.WARN,
-            summary=(
-                f"Index mismatch: database={index.database_count}, "
-                f"index={index.index_count}"
-            ),
+            state=State.OK,
+            summary=f"In sync: database {index.database_count}, index {index.index_count}",
         )
-    else:
-        yield Result(state=State.OK, summary=f"In sync ({index.index_count} items)")
+        return
+
+    yield Result(
+        state=state_from_param(
+            _indexer_param_str(params, "mismatch_state")
+        ),
+        summary=(
+            f"Out of sync: database {index.database_count}, "
+            f"index {index.index_count}"
+        ),
+    )
 
 
 agent_section_arcgis_portal_indexer = AgentSection(
@@ -101,35 +147,90 @@ agent_section_arcgis_portal_indexer = AgentSection(
     parse_function=parse_arcgis_portal_indexer,
 )
 
+
 check_plugin_arcgis_portal_indexer = CheckPlugin(
     name="arcgis_portal_indexer",
     service_name="ArcGIS Portal Index %s",
     discovery_function=discover_arcgis_portal_indexer,
     check_function=check_arcgis_portal_indexer,
+    check_default_parameters=DEFAULT_PORTAL_INDEXER_PARAMS,
+    check_ruleset_name="arcgis_portal_indexer",
 )
 
 
-def discover_arcgis_portal_sync(section: SectionPortalIndexer) -> DiscoveryResult:
+def discover_arcgis_portal_indexer_sync(
+    section: SectionPortalIndexer,
+) -> DiscoveryResult:
     if section.sync_status is not None:
         yield Service()
 
-
-def check_arcgis_portal_sync(section: SectionPortalIndexer) -> CheckResult:
+def check_arcgis_portal_indexer_sync(
+    params: Mapping[str, Any],
+    section: SectionPortalIndexer,
+) -> CheckResult:
     if section.sync_status is True:
-        yield Result(state=State.OK, summary="Index sync is healthy")
-    elif section.sync_status is False:
-        yield Result(state=State.CRIT, summary="Index sync is not healthy")
-    else:
-        yield Result(state=State.UNKNOWN, summary="Sync status unavailable")
+        yield Result(
+            state=State.OK,
+            summary="Index sync is healthy",
+        )
+        return
+
+    if section.sync_status is False:
+        yield Result(
+            state=state_from_param(
+                _indexer_sync_param_str(params, "sync_false_state")
+            ),
+            summary="Index sync is unhealthy",
+        )
+        return
+
+    yield Result(
+        state=state_from_param(
+            _indexer_sync_param_str(params, "sync_unknown_state")
+        ),
+        summary="Index sync status unknown",
+    )
 
 
-check_plugin_arcgis_portal_sync = CheckPlugin(
+check_plugin_arcgis_portal_indexer_sync = CheckPlugin(
     name="arcgis_portal_indexer_sync",
     sections=["arcgis_portal_indexer"],
     service_name="ArcGIS Portal Index Sync",
-    discovery_function=discover_arcgis_portal_sync,
-    check_function=check_arcgis_portal_sync,
+    discovery_function=discover_arcgis_portal_indexer_sync,
+    check_function=check_arcgis_portal_indexer_sync,
+    check_default_parameters=DEFAULT_PORTAL_INDEXER_SYNC_PARAMS,
+    check_ruleset_name="arcgis_portal_indexer_sync",
 )
+
+# Federation
+
+DEFAULT_PORTAL_FEDERATION_SERVER_PARAMS = {
+    "warning_state": "warn",
+    "failed_state": "crit",
+    "unknown_state": "unknown",
+    "missing_server_state": "unknown",
+}
+
+
+DEFAULT_PORTAL_FEDERATION_STATUS_PARAMS = {
+    "warning_state": "warn",
+    "failed_state": "crit",
+    "unknown_state": "unknown",
+}
+
+
+def _federation_server_param_str(
+    params: Mapping[str, Any],
+    key: str,
+) -> str:
+    return param_str(params, DEFAULT_PORTAL_FEDERATION_SERVER_PARAMS, key)
+
+
+def _federation_status_param_str(
+    params: Mapping[str, Any],
+    key: str,
+) -> str:
+    return param_str(params, DEFAULT_PORTAL_FEDERATION_STATUS_PARAMS, key)
 
 
 def parse_arcgis_portal_federation(string_table: StringTable) -> SectionPortalFederation:
@@ -153,17 +254,32 @@ agent_section_arcgis_portal_federation = AgentSection(
 )
 
 
-def _state_from_federation_status(status: str) -> tuple[State, str]:
+def _state_from_federation_status(
+    status: str,
+    params: Mapping[str, Any],
+    param_reader: Callable[[Mapping[str, Any], str], str],
+) -> tuple[State, str]:
     normalized = status.strip().lower().replace("_", " ")
 
     if normalized == "success":
         return State.OK, "healthy"
-    if normalized == "success with warnings":
-        return State.WARN, "warning"
-    if normalized in {"error", "failure", "failed"}:
-        return State.CRIT, "not healthy"
 
-    return State.UNKNOWN, normalized or "unknown"
+    if normalized == "success with warnings":
+        return (
+            state_from_param(param_reader(params, "warning_state")),
+            "warning",
+        )
+
+    if normalized in {"error", "failure", "failed"}:
+        return (
+            state_from_param(param_reader(params, "failed_state")),
+            "not healthy",
+        )
+
+    return (
+        state_from_param(param_reader(params, "unknown_state")),
+        normalized or "unknown",
+    )
 
 
 def discover_arcgis_portal_federation_servers(
@@ -175,6 +291,7 @@ def discover_arcgis_portal_federation_servers(
 
 def check_arcgis_portal_federation_servers(
     item: str,
+    params: Mapping[str, Any],
     section: SectionPortalFederation,
 ) -> CheckResult:
     servers_by_url = {server.admin_url: server for server in section.servers}
@@ -182,13 +299,23 @@ def check_arcgis_portal_federation_servers(
     server = servers_by_url.get(item)
     if server is None:
         yield Result(
-            state=State.UNKNOWN,
+            state=state_from_param(
+                _federation_server_param_str(params, "missing_server_state")
+            ),
             summary="Federated server missing from agent output",
         )
         return
 
-    state, text = _state_from_federation_status(server.status)
-    yield Result(state=state, summary=f"Federated server is {text}")
+    state, text = _state_from_federation_status(
+        server.status,
+        params,
+        _federation_server_param_str,
+    )
+
+    yield Result(
+        state=state,
+        summary=f"Federated server is {text}",
+    )
 
 
 check_plugin_arcgis_portal_federation_servers = CheckPlugin(
@@ -197,6 +324,8 @@ check_plugin_arcgis_portal_federation_servers = CheckPlugin(
     service_name="ArcGIS Federated Server %s",
     discovery_function=discover_arcgis_portal_federation_servers,
     check_function=check_arcgis_portal_federation_servers,
+    check_default_parameters=DEFAULT_PORTAL_FEDERATION_SERVER_PARAMS,
+    check_ruleset_name="arcgis_portal_federation_servers",
 )
 
 
@@ -208,10 +337,19 @@ def discover_arcgis_portal_federation_status(
 
 
 def check_arcgis_portal_federation_status(
+    params: Mapping[str, Any],
     section: SectionPortalFederation,
 ) -> CheckResult:
-    state, text = _state_from_federation_status(section.federation_status)
-    yield Result(state=state, summary=f"Federation is {text}")
+    state, text = _state_from_federation_status(
+        section.federation_status,
+        params,
+        _federation_status_param_str,
+    )
+
+    yield Result(
+        state=state,
+        summary=f"Federation is {text}",
+    )
 
 
 check_plugin_arcgis_portal_federation_status = CheckPlugin(
@@ -220,4 +358,6 @@ check_plugin_arcgis_portal_federation_status = CheckPlugin(
     service_name="ArcGIS Portal Federation Status",
     discovery_function=discover_arcgis_portal_federation_status,
     check_function=check_arcgis_portal_federation_status,
+    check_default_parameters=DEFAULT_PORTAL_FEDERATION_STATUS_PARAMS,
+    check_ruleset_name="arcgis_portal_federation_status",
 )
