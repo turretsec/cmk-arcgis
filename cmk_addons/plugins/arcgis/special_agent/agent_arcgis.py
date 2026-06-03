@@ -72,6 +72,17 @@ def log_collection_error(
 
 # Argument parsing
 
+def non_negative_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{value!r} is not an integer") from exc
+
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("value must be greater than or equal to 0")
+
+    return parsed
+
 def parse_arguments(argv):
     parser = argparse.ArgumentParser(description="CheckMK ArcGIS Enterprise Special Agent")
     parser.add_argument("--username", required=True, help="ArcGIS admin username")
@@ -79,6 +90,54 @@ def parse_arguments(argv):
     parser.add_argument("--portal-url", required=True, help="Portal base URL")
     parser.add_argument("--no-verify-ssl", action="store_true")
     parser.add_argument("--token-expiry", type=int, default=60)
+    parser.add_argument(
+        "--portal-federation-cache",
+        type=non_negative_int,
+        default=300,
+        help="Cache interval in seconds for Portal federation validation. Use 0 to disable section caching.",
+    )
+    parser.add_argument(
+        "--portal-license-cache",
+        type=non_negative_int,
+        default=3600,
+        help="Cache interval in seconds for Portal license data. Use 0 to disable section caching.",
+    )
+    parser.add_argument(
+        "--portal-log-settings-cache",
+        type=non_negative_int,
+        default=3600,
+        help="Cache interval in seconds for Portal log settings. Use 0 to disable section caching.",
+    )
+    parser.add_argument(
+        "--server-machines-cache",
+        type=non_negative_int,
+        default=300,
+        help="Cache interval in seconds for ArcGIS Server machine states. Use 0 to disable section caching.",
+    )
+    parser.add_argument(
+        "--registered-datastores-cache",
+        type=non_negative_int,
+        default=900,
+        help="Cache interval in seconds for registered datastore validation. Use 0 to disable section caching.",
+    )
+    parser.add_argument(
+        "--managed-datastores-cache",
+        type=non_negative_int,
+        default=900,
+        help="Cache interval in seconds for managed datastore validation. Use 0 to disable section caching.",
+    )
+    parser.add_argument(
+        "--server-license-cache",
+        type=non_negative_int,
+        default=3600,
+        help="Cache interval in seconds for ArcGIS Server license data. Use 0 to disable section caching.",
+    )
+    parser.add_argument(
+        "--server-log-settings-cache",
+        type=non_negative_int,
+        default=3600,
+        help="Cache interval in seconds for ArcGIS Server log settings. Use 0 to disable section caching.",
+    )
     parser.add_argument(
         "-v",
         "--verbose",
@@ -91,8 +150,45 @@ def parse_arguments(argv):
         action="store_true",
         help="Enable debug logging. Equivalent to -vv.",
     )
+    parser.add_argument("--no-portal-health", action="store_true")
+    parser.add_argument("--no-portal-indexer", action="store_true")
+    parser.add_argument("--no-portal-federation", action="store_true")
+    parser.add_argument("--no-portal-license", action="store_true")
+    parser.add_argument("--no-portal-log-settings", action="store_true")
+
+    parser.add_argument("--no-server-machines", action="store_true")
+    parser.add_argument("--no-server-services", action="store_true")
+    parser.add_argument("--no-registered-datastores", action="store_true")
+    parser.add_argument("--no-managed-datastores", action="store_true")
+    parser.add_argument("--no-server-license", action="store_true")
+    parser.add_argument("--no-server-log-settings", action="store_true")
     parser.add_argument("hostname", help="Target hostname")
     return parser.parse_args(argv)
+
+def cache_interval(value: int) -> int | None:
+    if value <= 0:
+        return None
+    return value
+
+def server_collection_enabled(args: argparse.Namespace) -> bool:
+    return any(
+        [
+            not args.no_server_machines,
+            not args.no_server_services,
+            not args.no_registered_datastores,
+            not args.no_managed_datastores,
+            not args.no_server_license,
+            not args.no_server_log_settings,
+        ]
+    )
+
+
+def log_disabled_collection(component: str, target: str) -> None:
+    LOGGER.info(
+        "Skipping %s collection for %s because it is disabled by rule",
+        component,
+        target,
+    )
 
 def hostname_matches_machine(hostname: str, machine_name: str) -> bool:
     """Check if hostname refers to this portal machine.
@@ -129,94 +225,118 @@ def collect_portal(
     portal_client: PortalClient,
     collection: CollectionStatus,
 ) -> list[dict]:
-    try:
-        LOGGER.info("Collecting portal machines")
-        portal_machines = portal_client.get_portal_machines()
-        LOGGER.debug("Portal machines: %s", portal_machines)
-        all_machine_names = [
-            machine["machineName"]
-            for machine in portal_machines
-            if machine.get("machineName")
-        ]
-        for machine in portal_machines:
-            machine_name = machine.get("machineName")
-            if not machine_name:
-                LOGGER.debug("Skipping portal machine without machineName: %r", machine)
-                continue
-            piggyback_host = machine_piggyback_host(
-                args.hostname,
-                machine_name,
-                all_machine_names,
-            )
-            LOGGER.info("Collecting portal health for machine %s (piggyback host: '%s')", machine_name, piggyback_host)
-            machine_status = portal_client.get_portal_machine_status(machine_name)
-            LOGGER.debug("Machine status for %s: %s", machine_name, machine_status)
-            role = machine.get("role", "standalone") or "standalone"
-
-            if piggyback_host:
-                output_json_piggyback(
+    if args.no_portal_health:
+        log_disabled_collection("portal_health", "portal")
+    else:
+        try:
+            LOGGER.info("Collecting portal machines")
+            portal_machines = portal_client.get_portal_machines()
+            LOGGER.debug("Portal machines: %s", portal_machines)
+            all_machine_names = [
+                machine["machineName"]
+                for machine in portal_machines
+                if machine.get("machineName")
+            ]
+            for machine in portal_machines:
+                machine_name = machine.get("machineName")
+                if not machine_name:
+                    LOGGER.debug("Skipping portal machine without machineName: %r", machine)
+                    continue
+                piggyback_host = machine_piggyback_host(
+                    args.hostname,
+                    machine_name,
+                    all_machine_names,
+                )
+                LOGGER.info(
+                    "Collecting portal health for machine %s (piggyback host: '%s')",
+                    machine_name,
                     piggyback_host,
-                    "arcgis_portal_health",
-                    portal_health_section(machine_status, role),
                 )
-            else:
-                output_json_section(
-                    "arcgis_portal_health",
-                    portal_health_section(machine_status, role),
-                )
+                machine_status = portal_client.get_portal_machine_status(machine_name)
+                LOGGER.debug("Machine status for %s: %s", machine_name, machine_status)
+                role = machine.get("role", "standalone") or "standalone"
 
-        collection.ok("portal_health", "portal")
+                if piggyback_host:
+                    output_json_piggyback(
+                        piggyback_host,
+                        "arcgis_portal_health",
+                        portal_health_section(machine_status, role),
+                    )
+                else:
+                    output_json_section(
+                        "arcgis_portal_health",
+                        portal_health_section(machine_status, role),
+                    )
 
-    except Exception as e:
-        collection.error("portal_health", "portal", e)
-        log_collection_error("portal_health", "portal", e)
+            collection.ok("portal_health", "portal")
 
-    try:
-        LOGGER.info("Collecting portal indexer status")
-        output_json_section(
-            "arcgis_portal_indexer",
-            portal_indexer_section(portal_client.get_portal_indexer()),
-        )
-        collection.ok("portal_indexer", "portal")
-    except Exception as e:
-        collection.error("portal_indexer", "portal", e)
-        log_collection_error("portal_indexer", "portal", e)
+        except Exception as e:
+            collection.error("portal_health", "portal", e)
+            log_collection_error("portal_health", "portal", e)
 
-    try:
-        LOGGER.info("Collecting portal federation validation")
-        output_json_section(
-            "arcgis_portal_federation",
-            portal_federation_section(portal_client.validate_federation()),
-            cache_interval=300,
-        )
-        collection.ok("portal_federation", "portal")
-    except Exception as e:
-        collection.error("portal_federation", "portal", e)
-        log_collection_error("portal_federation", "portal", e)
+    if args.no_portal_indexer:
+        log_disabled_collection("portal_indexer", "portal")
+    else:
+        try:
+            LOGGER.info("Collecting portal indexer status")
+            output_json_section(
+                "arcgis_portal_indexer",
+                portal_indexer_section(portal_client.get_portal_indexer()),
+            )
+            collection.ok("portal_indexer", "portal")
+        except Exception as e:
+            collection.error("portal_indexer", "portal", e)
+            log_collection_error("portal_indexer", "portal", e)
 
-    try:
-        LOGGER.info("Collecting portal license")
-        output_json_section(
-            "arcgis_portal_license",
-            portal_license_section(portal_client.get_license()),
-            cache_interval=3600,
-        )
-        collection.ok("portal_license", "portal")
-    except Exception as e:
-        collection.error("portal_license", "portal", e)
-        log_collection_error("portal_license", "portal", e)
+    if args.no_portal_federation:
+        log_disabled_collection("portal_federation", "portal")
+    else:
+        try:
+            LOGGER.info("Collecting portal federation validation")
+            output_json_section(
+                "arcgis_portal_federation",
+                portal_federation_section(portal_client.validate_federation()),
+                cache_interval=cache_interval(args.portal_federation_cache),
+            )
+            collection.ok("portal_federation", "portal")
+        except Exception as e:
+            collection.error("portal_federation", "portal", e)
+            log_collection_error("portal_federation", "portal", e)
 
-    try:
-        LOGGER.info("Collecting portal log settings")
-        output_json_section(
-            "arcgis_portal_log_settings",
-            log_settings_section(portal_client.get_log_settings()),
-            cache_interval=3600,
-        )
-        collection.ok("portal_log_settings", "portal")
-    except Exception as e:
-        collection.error("portal_log_settings", "portal", e)
-        log_collection_error("portal_log_settings", "portal", e)
+    if args.no_portal_license:
+        log_disabled_collection("portal_license", "portal")
+    else:
+        try:
+            LOGGER.info("Collecting portal license")
+            output_json_section(
+                "arcgis_portal_license",
+                portal_license_section(portal_client.get_license()),
+                cache_interval=cache_interval(args.portal_license_cache),
+            )
+            collection.ok("portal_license", "portal")
+        except Exception as e:
+            collection.error("portal_license", "portal", e)
+            log_collection_error("portal_license", "portal", e)
+
+    if args.no_portal_log_settings:
+        log_disabled_collection("portal_log_settings", "portal")
+    else:
+        try:
+            LOGGER.info("Collecting portal log settings")
+            output_json_section(
+                "arcgis_portal_log_settings",
+                log_settings_section(portal_client.get_log_settings()),
+                cache_interval=cache_interval(args.portal_log_settings_cache),
+            )
+            collection.ok("portal_log_settings", "portal")
+        except Exception as e:
+            collection.error("portal_log_settings", "portal", e)
+            log_collection_error("portal_log_settings", "portal", e)
+
+    if not server_collection_enabled(args):
+        log_disabled_collection("federated_servers", "portal")
+        return []
+
     try:
         LOGGER.info("Collecting portal federated servers")
         federated_servers = portal_client.get_federated_servers()
@@ -228,7 +348,7 @@ def collect_portal(
         log_collection_error("federated_servers", "portal", e)
         return []
     
-def collect_server_machines(server_name, server_client: ServerClient, collection: CollectionStatus) -> None:
+def collect_server_machines(server_name, server_client: ServerClient, collection: CollectionStatus, cache_seconds: int) -> None:
     LOGGER.info("Collecting server machines for %s", server_name)
     machines = server_client.get_machines()
     LOGGER.debug("Server machines for %s: %s", server_name, machines)
@@ -256,7 +376,7 @@ def collect_server_machines(server_name, server_client: ServerClient, collection
         server_name,
         "arcgis_server_machines",
         arcgis_server_machines_section(machine_statuses),
-        cache_interval=300,
+        cache_interval=cache_interval(cache_seconds),
     )
     
 def collect_server_services(server_name, server_client: ServerClient, collection: CollectionStatus) -> None:
@@ -285,6 +405,7 @@ def collect_registered_datastores(
     server_name: str,
     server_client: ServerClient,
     collection: CollectionStatus,
+    cache_seconds: int,
 ) -> None:
     LOGGER.info("Collecting registered datastores for %s", server_name)
     validations: list[RegisteredDatastoreValidation] = []
@@ -318,13 +439,14 @@ def collect_registered_datastores(
         server_name,
         "arcgis_registered_datastore_validation",
         SectionRegisteredDatastoreValidation(validations=validations),
-        cache_interval=900,
+        cache_interval=cache_interval(cache_seconds),
     )
 
 def collect_managed_datastores(
     args,
     server_client: ServerClient,
     collection: CollectionStatus,
+    cache_seconds: int,
 ) -> tuple[int, int]:
     managed_datastores = server_client.get_datastores(managed=True)
     LOGGER.info("Collecting managed datastores")
@@ -368,12 +490,12 @@ def collect_managed_datastores(
             piggyback_host,
             "arcgis_managed_datastore_validation",
             SectionManagedDatastoreValidation(validations=validations),
-            cache_interval=900,
+            cache_interval=cache_interval(cache_seconds),
         )
 
     return validated_count, unsupported_count
 
-def collect_server_license(server_name, server_client: ServerClient, collection: CollectionStatus) -> None:
+def collect_server_license(server_name, server_client: ServerClient, collection: CollectionStatus, cache_seconds: int) -> None:
     # Check license status
     LOGGER.info("Collecting server license for %s", server_name)
     license_data = server_client.get_license()
@@ -382,80 +504,101 @@ def collect_server_license(server_name, server_client: ServerClient, collection:
         server_name,
         "arcgis_server_license",
         server_license_section(license_data),
-        cache_interval=3600,
+        cache_interval=cache_interval(cache_seconds),
     )
 
 def collect_server_log_settings(
     server_name: str,
     server_client: ServerClient,
     collection: CollectionStatus,
+    cache_seconds: int,
 ) -> None:
     LOGGER.info("Collecting server log settings for %s", server_name)
     output_json_piggyback(
         server_name,
         "arcgis_server_log_settings",
         log_settings_section(server_client.get_log_settings()),
-        cache_interval=3600,
+        cache_interval=cache_interval(cache_seconds),
     )
 
 def collect_server(
-        args,
-        server: dict,
-        server_client: ServerClient,
-        collection: CollectionStatus,
+    args,
+    server: dict,
+    server_client: ServerClient,
+    collection: CollectionStatus,
 ) -> None:
     LOGGER.info("Collecting data for server %s", server.get("name", "unknown"))
     server_name = server.get("name") or server.get("url") or "unknown"
 
-    try:
-        collect_server_machines(server_name, server_client, collection)
-        collection.ok("server_machines", server_name)
-    except Exception as e:
-        collection.error("server_machines", server_name, e)
-        log_collection_error("server_machines", server_name, e)
+    if args.no_server_machines:
+        log_disabled_collection("server_machines", server_name)
+    else:
+        try:
+            collect_server_machines(server_name, server_client, collection, args.server_machines_cache)
+            collection.ok("server_machines", server_name)
+        except Exception as e:
+            collection.error("server_machines", server_name, e)
+            log_collection_error("server_machines", server_name, e)
 
-    try:
-        collect_server_services(server_name, server_client, collection)
-        collection.ok("server_services", server_name)
-    except Exception as e:
-        collection.error("server_services", server_name, e)
-        log_collection_error("server_services", server_name, e)
+    if args.no_server_services:
+        log_disabled_collection("server_services", server_name)
+    else:
+        try:
+            collect_server_services(server_name, server_client, collection)
+            collection.ok("server_services", server_name)
+        except Exception as e:
+            collection.error("server_services", server_name, e)
+            log_collection_error("server_services", server_name, e)
 
-    try:
-        collect_registered_datastores(server_name, server_client, collection)
-        collection.ok("registered_datastores", server_name)
-    except Exception as e:
-        collection.error("registered_datastores", server_name, e)
-        log_collection_error("registered_datastores", server_name, e)
+    if args.no_registered_datastores:
+        log_disabled_collection("registered_datastores", server_name)
+    else:
+        try:
+            collect_registered_datastores(server_name, server_client, collection, args.registered_datastores_cache)
+            collection.ok("registered_datastores", server_name)
+        except Exception as e:
+            collection.error("registered_datastores", server_name, e)
+            log_collection_error("registered_datastores", server_name, e)
 
-    try:
-        validated_count, unsupported_count = collect_managed_datastores(
-            args,
-            server_client,
-            collection,
-        )
-        collection.add(
-            "managed_datastores",
-            server_name,
-            "OK",
-            f"validated_{validated_count}_unsupported_{unsupported_count}",
-        )
-    except Exception as e:
-        collection.error("managed_datastores", server_name, e)
-        log_collection_error("managed_datastores", server_name, e)
+    if args.no_managed_datastores:
+        log_disabled_collection("managed_datastores", server_name)
+    else:
+        try:
+            validated_count, unsupported_count = collect_managed_datastores(
+                args,
+                server_client,
+                collection,
+                args.managed_datastores_cache,
+            )
+            collection.add(
+                "managed_datastores",
+                server_name,
+                "OK",
+                f"validated_{validated_count}_unsupported_{unsupported_count}",
+            )
+        except Exception as e:
+            collection.error("managed_datastores", server_name, e)
+            log_collection_error("managed_datastores", server_name, e)
 
-    try:
-        collect_server_license(server_name, server_client, collection)
-        collection.ok("server_license", server_name)
-    except Exception as e:
-        collection.error("server_license", server_name, e)  
-        log_collection_error("server_license", server_name, e)
-    try:
-        collect_server_log_settings(server_name, server_client, collection)
-        collection.ok("server_log_settings", server_name)
-    except Exception as e:
-        collection.error("server_log_settings", server_name, e)
-        log_collection_error("server_log_settings", server_name, e)
+    if args.no_server_license:
+        log_disabled_collection("server_license", server_name)
+    else:
+        try:
+            collect_server_license(server_name, server_client, collection, args.server_license_cache)
+            collection.ok("server_license", server_name)
+        except Exception as e:
+            collection.error("server_license", server_name, e)
+            log_collection_error("server_license", server_name, e)
+
+    if args.no_server_log_settings:
+        log_disabled_collection("server_log_settings", server_name)
+    else:
+        try:
+            collect_server_log_settings(server_name, server_client, collection, args.server_log_settings_cache)
+            collection.ok("server_log_settings", server_name)
+        except Exception as e:
+            collection.error("server_log_settings", server_name, e)
+            log_collection_error("server_log_settings", server_name, e)
 
 def agent_arcgis(args):
     collection = CollectionStatus()

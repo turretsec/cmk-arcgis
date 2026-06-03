@@ -14,6 +14,178 @@ from cmk.rulesets.v1.form_specs import (
 )
 from cmk.rulesets.v1.rule_specs import SpecialAgent, Topic
 
+def _cache_interval(
+    title: str,
+    default: int,
+) -> Integer:
+    return Integer(
+        title=Title(title),
+        unit_symbol="seconds",
+        prefill=DefaultValue(default),
+    )
+
+def _collection_toggle(
+    title: str,
+    label: str,
+    default: bool = True,
+) -> BooleanChoice:
+    return BooleanChoice(
+        title=Title(title),
+        label=Label(label),
+        prefill=DefaultValue(default),
+    )
+
+def _cache_intervals_form() -> Dictionary:
+    return Dictionary(
+        title=Title("Cache intervals"),
+        help_text=Help(
+            "Controls the cache age written to the agent section headers. "
+            "Set to 0 to disable Checkmk section caching for that collection."
+        ),
+        elements={
+            "portal_federation": DictElement(
+                parameter_form=_cache_interval(
+                    "Portal federation validation",
+                    300,
+                ),
+                required=False,
+            ),
+            "portal_license": DictElement(
+                parameter_form=_cache_interval(
+                    "Portal license",
+                    3600,
+                ),
+                required=False,
+            ),
+            "portal_log_settings": DictElement(
+                parameter_form=_cache_interval(
+                    "Portal log settings",
+                    3600,
+                ),
+                required=False,
+            ),
+            "server_machines": DictElement(
+                parameter_form=_cache_interval(
+                    "Server machines",
+                    300,
+                ),
+                required=False,
+            ),
+            "registered_datastores": DictElement(
+                parameter_form=_cache_interval(
+                    "Registered datastore validation",
+                    900,
+                ),
+                required=False,
+            ),
+            "managed_datastores": DictElement(
+                parameter_form=_cache_interval(
+                    "Managed datastore validation",
+                    900,
+                ),
+                required=False,
+            ),
+            "server_license": DictElement(
+                parameter_form=_cache_interval(
+                    "Server license",
+                    3600,
+                ),
+                required=False,
+            ),
+            "server_log_settings": DictElement(
+                parameter_form=_cache_interval(
+                    "Server log settings",
+                    3600,
+                ),
+                required=False,
+            ),
+        },
+    )
+
+def _collections_form() -> Dictionary:
+    return Dictionary(
+        title=Title("Collection scope"),
+        elements={
+            "portal_health": DictElement(
+                parameter_form=_collection_toggle(
+                    "Portal health",
+                    "Collect Portal machine health",
+                ),
+                required=False,
+            ),
+            "portal_indexer": DictElement(
+                parameter_form=_collection_toggle(
+                    "Portal indexer",
+                    "Collect Portal indexer status",
+                ),
+                required=False,
+            ),
+            "portal_federation": DictElement(
+                parameter_form=_collection_toggle(
+                    "Portal federation validation",
+                    "Collect Portal federation validation",
+                ),
+                required=False,
+            ),
+            "portal_license": DictElement(
+                parameter_form=_collection_toggle(
+                    "Portal license",
+                    "Collect Portal license information",
+                ),
+                required=False,
+            ),
+            "portal_log_settings": DictElement(
+                parameter_form=_collection_toggle(
+                    "Portal log settings",
+                    "Collect Portal log settings",
+                ),
+                required=False,
+            ),
+            "server_machines": DictElement(
+                parameter_form=_collection_toggle(
+                    "Server machines",
+                    "Collect ArcGIS Server machine states",
+                ),
+                required=False,
+            ),
+            "server_services": DictElement(
+                parameter_form=_collection_toggle(
+                    "Server services",
+                    "Collect ArcGIS Server service states",
+                ),
+                required=False,
+            ),
+            "registered_datastores": DictElement(
+                parameter_form=_collection_toggle(
+                    "Registered datastores",
+                    "Collect registered datastore validation",
+                ),
+                required=False,
+            ),
+            "managed_datastores": DictElement(
+                parameter_form=_collection_toggle(
+                    "Managed datastores",
+                    "Collect managed datastore validation",
+                ),
+                required=False,
+            ),
+            "server_license": DictElement(
+                parameter_form=_collection_toggle(
+                    "Server license",
+                    "Collect ArcGIS Server license information",
+                ),
+                required=False,
+            ),
+            "server_log_settings": DictElement(
+                parameter_form=_collection_toggle(
+                    "Server log settings",
+                    "Collect ArcGIS Server log settings",
+                ),
+                required=False,
+            ),
+        },
+    )
+
 def _parameter_form() -> Dictionary:
     return Dictionary(
         elements={
@@ -53,6 +225,14 @@ def _parameter_form() -> Dictionary:
                     help_text=Help("How long the admin token is valid for"),
                     prefill=DefaultValue(60),
                 ),
+                required=False,
+            ),
+            "collections": DictElement(
+                parameter_form=_collections_form(),
+                required=False,
+            ),
+            "cache_intervals": DictElement(
+                parameter_form=_cache_intervals_form(),
                 required=False,
             ),
         }
