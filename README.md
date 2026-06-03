@@ -383,3 +383,7 @@ cmk-piggyback list piggybacked
 - ArcGIS Enterprise deployments may return different response shapes for license, datastore, or federation endpoints depending on version and configuration. If a service produces unexpected results, run the agent with `-vv` and inspect the raw API responses.
 - Federated server filtering affects server collection only. The Portal federation validation check still reflects all servers returned by Portal.
 - No performance metrics or graphs are currently included.
+
+---
+
+This project is an independent Checkmk extension and is not affiliated with or endorsed by Checkmk GmbH. Checkmk itself is licensed separately by Checkmk GmbH.
