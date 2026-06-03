@@ -1,5 +1,6 @@
 from typing import Iterator
-from pydantic import BaseModel
+
+from pydantic import BaseModel, Field
 
 from cmk.server_side_calls.v1 import (
     HostConfig,
@@ -8,12 +9,90 @@ from cmk.server_side_calls.v1 import (
     SpecialAgentConfig,
 )
 
+
+class CacheIntervalParams(BaseModel):
+    portal_federation: int = Field(default=300, ge=0)
+    portal_license: int = Field(default=3600, ge=0)
+    portal_log_settings: int = Field(default=3600, ge=0)
+    server_machines: int = Field(default=300, ge=0)
+    registered_datastores: int = Field(default=900, ge=0)
+    managed_datastores: int = Field(default=900, ge=0)
+    server_license: int = Field(default=3600, ge=0)
+    server_log_settings: int = Field(default=3600, ge=0)
+
+
+class CollectionParams(BaseModel):
+    portal_health: bool = True
+    portal_indexer: bool = True
+    portal_federation: bool = True
+    portal_license: bool = True
+    portal_log_settings: bool = True
+    server_machines: bool = True
+    server_services: bool = True
+    registered_datastores: bool = True
+    managed_datastores: bool = True
+    server_license: bool = True
+    server_log_settings: bool = True
+
+
 class Params(BaseModel):
     username: str
     password: Secret
     portal_url: str
     verify_ssl: bool = True
     token_expiry: int = 60
+    collections: CollectionParams = Field(default_factory=CollectionParams)
+    cache_intervals: CacheIntervalParams = Field(default_factory=CacheIntervalParams)
+
+
+def _append_cache_interval_args(
+    args: list[str | Secret],
+    cache_intervals: CacheIntervalParams,
+) -> None:
+    args.extend(
+        [
+            "--portal-federation-cache",
+            str(cache_intervals.portal_federation),
+            "--portal-license-cache",
+            str(cache_intervals.portal_license),
+            "--portal-log-settings-cache",
+            str(cache_intervals.portal_log_settings),
+            "--server-machines-cache",
+            str(cache_intervals.server_machines),
+            "--registered-datastores-cache",
+            str(cache_intervals.registered_datastores),
+            "--managed-datastores-cache",
+            str(cache_intervals.managed_datastores),
+            "--server-license-cache",
+            str(cache_intervals.server_license),
+            "--server-log-settings-cache",
+            str(cache_intervals.server_log_settings),
+        ]
+    )
+
+
+def _append_disabled_collection_flags(
+    args: list[str | Secret],
+    collections: CollectionParams,
+) -> None:
+    disabled_flags = [
+        (collections.portal_health, "--no-portal-health"),
+        (collections.portal_indexer, "--no-portal-indexer"),
+        (collections.portal_federation, "--no-portal-federation"),
+        (collections.portal_license, "--no-portal-license"),
+        (collections.portal_log_settings, "--no-portal-log-settings"),
+        (collections.server_machines, "--no-server-machines"),
+        (collections.server_services, "--no-server-services"),
+        (collections.registered_datastores, "--no-registered-datastores"),
+        (collections.managed_datastores, "--no-managed-datastores"),
+        (collections.server_license, "--no-server-license"),
+        (collections.server_log_settings, "--no-server-log-settings"),
+    ]
+
+    for enabled, flag in disabled_flags:
+        if not enabled:
+            args.append(flag)
+
 
 def _generate_arcgis_command(
     params: Params,
@@ -33,9 +112,13 @@ def _generate_arcgis_command(
     if not params.verify_ssl:
         args.append("--no-verify-ssl")
 
+    _append_disabled_collection_flags(args, params.collections)
+    _append_cache_interval_args(args, params.cache_intervals)
+
     args.append(host_config.name)
 
     yield SpecialAgentCommand(command_arguments=args)
+
 
 special_agent_arcgis = SpecialAgentConfig(
     name="arcgis",
