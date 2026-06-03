@@ -14,6 +14,41 @@ from cmk.rulesets.v1.form_specs import (
 )
 from cmk.rulesets.v1.rule_specs import SpecialAgent, Topic
 
+
+def _server_filter_form() -> Dictionary:
+    return Dictionary(
+        title=Title("Federated server filtering"),
+        help_text=Help(
+            "Optional regular expressions used to limit which federated ArcGIS "
+            "servers are collected. Patterns are matched against the server name, "
+            "URL, and admin URL. Exclude rules win over include rules."
+        ),
+        elements={
+            "include_patterns": DictElement(
+                parameter_form=List(
+                    title=Title("Only collect federated servers matching"),
+                    element_template=String(
+                        title=Title("Regular expression"),
+                        field_size=FieldSize.LARGE,
+                    ),
+                    add_element_label=Label("Add include pattern"),
+                ),
+                required=False,
+            ),
+            "exclude_patterns": DictElement(
+                parameter_form=List(
+                    title=Title("Do not collect federated servers matching"),
+                    element_template=String(
+                        title=Title("Regular expression"),
+                        field_size=FieldSize.LARGE,
+                    ),
+                    add_element_label=Label("Add exclude pattern"),
+                ),
+                required=False,
+            ),
+        },
+    )
+
 def _cache_interval(
     title: str,
     default: int,
@@ -233,6 +268,10 @@ def _parameter_form() -> Dictionary:
             ),
             "cache_intervals": DictElement(
                 parameter_form=_cache_intervals_form(),
+                required=False,
+            ),
+            "server_filter": DictElement(
+                parameter_form=_server_filter_form(),
                 required=False,
             ),
         }
