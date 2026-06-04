@@ -64,6 +64,7 @@ Portal machine health is emitted per machine. In a single-machine Portal deploym
 - An ArcGIS administrator account with access to Portal and Server admin endpoints
 - A Checkmk host for Portal or the Portal URL
 - Checkmk hosts for federated ArcGIS Server sites that should receive piggyback data
+- The Checkmk site must be able to reach the Portal admin endpoint and each federated ArcGIS Server admin URL. In many deployments, federated Server admin traffic uses the internal `adminUrl`, often on port 6443, not the public web adaptor URL.
 
 ## Installation
 
@@ -259,6 +260,10 @@ Server data is emitted through Checkmk piggyback sections. The piggyback target 
 Portal machine health uses the machine hostname prefix before the first dot and lowercases it when piggybacking to a separate machine host.
 
 The target Checkmk host names must match the piggyback names, or Checkmk host name translation rules must be used.
+
+By default, Portal machine piggyback names are derived from the short hostname, lowercased. For example, `gisserver01.example.com` becomes `gisserver01`.
+
+If your Checkmk hosts use FQDNs or a different naming convention, configure Checkmk's piggyback host name translation rules to map the emitted piggyback names to your actual host names.
 
 ## Troubleshooting
 
