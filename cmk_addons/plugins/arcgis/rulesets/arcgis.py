@@ -114,6 +114,10 @@ def _cache_intervals_form() -> Dictionary:
                 parameter_form=_cache_interval("Web adaptors", 300),
                 required=False,
             ),
+            "server_logs": DictElement(
+                parameter_form=_cache_interval("Server log query", 300),
+                required=False,
+            ),
         },
     )
 
@@ -220,6 +224,13 @@ def _collections_form() -> Dictionary:
                 ),
                 required=False,
             ),
+            "server_logs": DictElement(
+                parameter_form=_collection_toggle(
+                    "Server logs",
+                    "Collect recent SEVERE and WARNING log entries from each ArcGIS Server",
+                ),
+                required=False,
+            ),
         },
     )
 
@@ -284,6 +295,19 @@ def _parameter_form() -> Dictionary:
                         SingleChoiceElement(name="LAST_MONTH", title=Title("Last 30 days")),
                     ],
                     prefill=DefaultValue("LAST_HOUR"),
+                ),
+                required=False,
+            ),
+            "server_logs_window": DictElement(
+                parameter_form=Integer(
+                    title=Title("Server log query window (minutes)"),
+                    help_text=Help(
+                        "How far back to query for SEVERE and WARNING log entries. "
+                        "Set to at least 2× the check interval to avoid gaps between "
+                        "collections. Default is 15 minutes."
+                    ),
+                    unit_symbol="minutes",
+                    prefill=DefaultValue(15),
                 ),
                 required=False,
             ),

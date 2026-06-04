@@ -1,9 +1,10 @@
 import json
+import time
 import requests
 from pathlib import Path
-import time
 
-from cmk.utils import password_store 
+from cmk.utils import password_store
+
 
 class ArcGISTokenProvider:
     def __init__(
@@ -85,7 +86,8 @@ class ArcGISTokenProvider:
             )
 
         return self._server_tokens[server_url]
-    
+
+
 class PortalClient:
     def __init__(
         self,
@@ -118,13 +120,13 @@ class PortalClient:
         )
         response.raise_for_status()
         return response.json()
-    
+
     def get_portal_machines(self) -> list[dict]:
         return self.get_json("/portaladmin/machines").get("machines", [])
-    
+
     def get_portal_machine_status(self, machine_name: str) -> str:
         return self.get_json(f"/portaladmin/machines/status/{machine_name}").get("status", "error")
-    
+
     def get_portal_indexer(self) -> dict:
         return self.get_json("/portaladmin/system/indexer/status")
 
@@ -139,10 +141,11 @@ class PortalClient:
 
     def get_license(self) -> dict:
         return self.get_json("/portaladmin/license")
-    
+
     def get_log_settings(self) -> dict:
         return self.get_json("/portaladmin/logs/settings")
-    
+
+
 class ServerClient:
     def __init__(
         self,
@@ -195,11 +198,10 @@ class ServerClient:
         )
         response.raise_for_status()
         return response.json()
-    
+
     def get_machines(self) -> list[dict]:
         response = self.get_json("/admin/machines")
         return response.get("machines", [])
-
 
     def get_machine_status(self, machine_name: str) -> dict:
         return self.get_json(f"/admin/machines/{machine_name}/status")
@@ -229,25 +231,28 @@ class ServerClient:
             full_name = f"{folder}/{name}.{svc_type}".lstrip("/")
             result[full_name] = report.get("status", {})
         return result
-    
+
     def get_datastores(self, managed: bool) -> list[dict]:
         response = self.post_json("/admin/data/findItems", {"managed": managed})
         return response.get("items", [])
-    
+
     def validate_registered_datastore(self, item: dict) -> dict:
         response = self.post_json("/admin/data/validateDataItem", {"item": json.dumps(item)})
         return response
-    
+
     def validate_managed_datastore(self, path: str, machine: dict) -> dict:
         response = self.post_json(f"/admin/data/items{path}/machines/{machine.get('name')}/validate")
         return response
-    
+
     def get_license(self) -> dict:
         return self.get_json("/admin/system/licenses")
-    
+
     def get_log_settings(self) -> dict:
         return self.get_json("/admin/logs/settings")
-    
+
+    # ------------------------------------------------------------------
+    # Usage Reports API - transient "quick report" pattern
+    # ------------------------------------------------------------------
 
     def create_usage_report(
         self,
@@ -260,10 +265,10 @@ class ServerClient:
         aggregation_interval: int | None = None,
     ) -> dict:
         """Create a usage report on the server.
- 
+
         Pass ``metadata={"temp": True}`` for a transient report that should be
         deleted after querying.  The report name must be unique.
- 
+
         For ``since="CUSTOM"`` supply ``from_ms`` and ``to_ms`` as millisecond
         epoch timestamps.  ``aggregation_interval`` (minutes) controls the
         time-slice granularity; when omitted the server uses its default.
@@ -280,30 +285,61 @@ class ServerClient:
             report["to"] = to_ms
         if aggregation_interval is not None:
             report["aggregationInterval"] = aggregation_interval
- 
+
         return self.post_json(
             "/admin/usagereports/add",
             {"usagereport": json.dumps(report)},
         )
- 
+
     def get_usage_report_data(self, report_name: str) -> dict:
         """Retrieve aggregated data for a previously created usage report."""
         return self.get_json(
             f"/admin/usagereports/{report_name}/data",
             {"filter": '{"machines":"*"}'},
         )
- 
+
     def delete_usage_report(self, report_name: str) -> dict:
         """Delete a usage report by name."""
         return self.post_json(f"/admin/usagereports/{report_name}/delete")
- 
+
     def get_server_mode(self) -> dict:
         """Return the site mode: EDITABLE or READ_ONLY."""
         return self.get_json("/admin/mode")
- 
+
     def get_web_adaptors(self) -> dict:
         """Return all web adaptors registered with this ArcGIS Server site."""
         return self.get_json("/admin/system/webadaptors")
+
+    def get_log_entries(
+        self,
+        window_minutes: int = 15,
+        page_size: int = 100,
+    ) -> dict:
+        """Query ArcGIS Server logs for WARNING and SEVERE messages.
+
+        Querying level=WARNING returns both WARNING and SEVERE records since
+        WARNING is the minimum severity filter - SEVERE is included because it
+        is higher on the severity scale.
+
+        IMPORTANT: The ArcGIS logs API names ``startTime`` and ``endTime``
+        from the perspective of the log file, not the query range.
+        ``startTime`` is the NEWER bound (the most recent time to include)
+        and ``endTime`` is the OLDER bound (the furthest point back to search).
+        This is the opposite of what you might expect.
+        """
+        now_ms = int(time.time() * 1000)
+        older_bound_ms = now_ms - (window_minutes * 60 * 1000)
+
+        return self.post_json(
+            "/admin/logs/query",
+            {
+                "startTime": str(now_ms),
+                "endTime": str(older_bound_ms),
+                "level": "WARNING",
+                "filter": json.dumps({"server": "*", "machines": ["*"]}),
+                "pageSize": str(page_size),
+            },
+        )
 
     def get_service_stats(
         self,
@@ -311,27 +347,27 @@ class ServerClient:
         since: str = "LAST_HOUR",
     ) -> dict:
         """Fetch per-service usage statistics using a transient usage report.
- 
+
         Creates a temporary report covering all requested *service_resource_uris*,
         queries its data, deletes it, and returns the raw report dict.
- 
+
         ``since`` controls the time window.  The special value ``"LAST_HOUR"``
         maps to a CUSTOM window of ``now - 1 hour`` to ``now`` with a 10-minute
         aggregation interval (6 data points), matching the "within the last hour"
         view used by ArcGIS Monitor dashboards.  The standard values
         ``"LAST_DAY"``, ``"LAST_WEEK"``, and ``"LAST_MONTH"`` are passed to the
         API directly.
- 
+
         All metrics are requested in a single query (valid from ArcGIS Enterprise
         11.1+, where ServiceRunningInstancesMax can be combined with the others).
- 
+
         Returns an empty dict when *service_resource_uris* is empty.
         """
         if not service_resource_uris:
             return {}
- 
+
         report_name = f"checkmk_{int(time.time() * 1000)}"
- 
+
         queries = [
             {
                 "resourceURIs": service_resource_uris,
@@ -347,9 +383,9 @@ class ServerClient:
                 ],
             }
         ]
- 
+
         metadata = {"temp": True, "title": report_name, "managerReport": False}
- 
+
         if since == "LAST_HOUR":
             # Use CUSTOM with dynamic timestamps so every collection run
             # reflects "the last 60 minutes" rather than a fixed calendar day.
@@ -366,7 +402,7 @@ class ServerClient:
             )
         else:
             self.create_usage_report(report_name, since, queries, metadata)
- 
+
         try:
             return self.get_usage_report_data(report_name)
         finally:

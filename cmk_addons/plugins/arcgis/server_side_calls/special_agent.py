@@ -26,6 +26,7 @@ class CacheIntervalParams(BaseModel):
     server_log_settings: int = Field(default=3600, ge=0)
     service_stats: int = Field(default=300, ge=0)
     web_adaptors: int = Field(default=300, ge=0)
+    server_logs: int = Field(default=300, ge=0)
 
 
 class CollectionParams(BaseModel):
@@ -39,6 +40,7 @@ class CollectionParams(BaseModel):
     server_service_stats: bool = True
     server_mode: bool = True
     web_adaptors: bool = True
+    server_logs: bool = True
     registered_datastores: bool = True
     managed_datastores: bool = True
     server_license: bool = True
@@ -52,6 +54,7 @@ class Params(BaseModel):
     verify_ssl: bool = True
     token_expiry: int = 60
     service_stats_since: str = "LAST_HOUR"
+    server_logs_window: int = 15
     collections: CollectionParams = Field(default_factory=CollectionParams)
     cache_intervals: CacheIntervalParams = Field(default_factory=CacheIntervalParams)
     server_filter: ServerFilterParams = Field(default_factory=ServerFilterParams)
@@ -94,6 +97,8 @@ def _append_cache_interval_args(
             str(cache_intervals.service_stats),
             "--web-adaptors-cache",
             str(cache_intervals.web_adaptors),
+            "--server-logs-cache",
+            str(cache_intervals.server_logs),
         ]
     )
 
@@ -113,6 +118,7 @@ def _append_disabled_collection_flags(
         (collections.server_service_stats, "--no-service-stats"),
         (collections.server_mode, "--no-server-mode"),
         (collections.web_adaptors, "--no-web-adaptors"),
+        (collections.server_logs, "--no-server-logs"),
         (collections.registered_datastores, "--no-registered-datastores"),
         (collections.managed_datastores, "--no-managed-datastores"),
         (collections.server_license, "--no-server-license"),
@@ -139,6 +145,8 @@ def _generate_arcgis_command(
         str(params.token_expiry),
         "--service-stats-since",
         params.service_stats_since,
+        "--server-logs-window",
+        str(params.server_logs_window),
     ]
 
     if not params.verify_ssl:

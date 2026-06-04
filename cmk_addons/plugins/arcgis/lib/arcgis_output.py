@@ -13,10 +13,11 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     PortalLicenseEntry,
     PortalLicenseSummary,
     SectionArcGISLogSettings,
+    SectionArcGISServerLogs,
     SectionArcGISServerMachines,
-    SectionArcGISServerMode,
     SectionArcGISServiceStats,
     SectionArcGISServices,
+    SectionArcGISServerMode,
     SectionArcGISWebAdaptors,
     SectionPortalFederation,
     SectionPortalHealth,
@@ -24,11 +25,16 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     SectionPortalLicense,
     SectionServerLicense,
     ServerLicenseEntry,
+    ServerLogEntry,
     ServiceStatsEntry,
     WebAdaptorEntry,
 )
 
-
+# ---------------------------------------------------------------------------
+# Seconds in each usage-report time window.  Used for requests/sec and for
+# ServiceStatsEntry.window_seconds so the check plugin can compute the rate
+# without needing to know the original "since" value.
+# ---------------------------------------------------------------------------
 WINDOW_SECONDS: dict[str, int] = {
     "LAST_HOUR": 3_600,
     "LAST_DAY": 86_400,
@@ -435,7 +441,7 @@ def arcgis_service_stats_section(
                 max_running_instances=max_running_instances,
             )
         )
- 
+
     return SectionArcGISServiceStats(services=services)
 
 
@@ -443,11 +449,11 @@ def server_mode_section(mode_data: dict) -> SectionArcGISServerMode:
     return SectionArcGISServerMode(
         site_mode=str(mode_data.get("siteMode", "UNKNOWN")),
     )
- 
- 
+
+
 def web_adaptors_section(adaptors_data: dict) -> SectionArcGISWebAdaptors:
     web_adaptors: list[WebAdaptorEntry] = []
- 
+
     for adaptor in adaptors_data.get("webAdaptors", []):
         web_adaptors.append(
             WebAdaptorEntry(
@@ -459,5 +465,54 @@ def web_adaptors_section(adaptors_data: dict) -> SectionArcGISWebAdaptors:
                 description=str(adaptor.get("description") or ""),
             )
         )
- 
+
     return SectionArcGISWebAdaptors(web_adaptors=web_adaptors)
+
+
+def server_logs_section(
+    log_data: dict,
+    window_minutes: int = 15,
+) -> SectionArcGISServerLogs:
+    """Aggregate a log query response into a section for the check plugin.
+
+    ArcGIS Server log levels are ordered SEVERE > WARNING > INFO > FINE.
+    Querying at level=WARNING returns WARNING and SEVERE records together,
+    so we split them when building counts.
+
+    The five most recent SEVERE entries are stored verbatim so the check
+    plugin can surface them in the service details without needing to
+    re-query the API.
+    """
+    messages = log_data.get("logMessages", [])
+    has_more = bool(log_data.get("hasMore", False))
+
+    severe_count = 0
+    warning_count = 0
+    recent_severe: list[ServerLogEntry] = []
+
+    for msg in messages:
+        level = str(msg.get("type", "")).strip().upper()
+
+        if level == "SEVERE":
+            severe_count += 1
+            if len(recent_severe) < 5:
+                recent_severe.append(
+                    ServerLogEntry(
+                        level=level,
+                        message=str(msg.get("message", "")),
+                        time_ms=int(msg.get("time", 0) or 0),
+                        source=str(msg.get("source", "") or ""),
+                        machine=str(msg.get("machine", "") or ""),
+                        code=int(msg.get("code", 0) or 0),
+                    )
+                )
+        elif level == "WARNING":
+            warning_count += 1
+
+    return SectionArcGISServerLogs(
+        severe_count=severe_count,
+        warning_count=warning_count,
+        has_more=has_more,
+        window_minutes=window_minutes,
+        recent_severe=recent_severe,
+    )

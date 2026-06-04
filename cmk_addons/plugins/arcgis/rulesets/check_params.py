@@ -1,4 +1,4 @@
-from cmk.rulesets.v1 import Title
+from cmk.rulesets.v1 import Help, Title
 from cmk.rulesets.v1.form_specs import (
     DefaultValue,
     DictElement,
@@ -693,10 +693,11 @@ rule_spec_arcgis_collection_status = CheckParameters(
     condition=HostCondition(),
 )
 
+
 # ---------------------------------------------------------------------------
 # Server mode
 # ---------------------------------------------------------------------------
- 
+
 def _parameter_form_arcgis_server_mode() -> Dictionary:
     return Dictionary(
         elements={
@@ -716,8 +717,8 @@ def _parameter_form_arcgis_server_mode() -> Dictionary:
             ),
         }
     )
- 
- 
+
+
 rule_spec_arcgis_server_mode = CheckParameters(
     name="arcgis_server_mode",
     title=Title("ArcGIS Server mode handling"),
@@ -725,12 +726,12 @@ rule_spec_arcgis_server_mode = CheckParameters(
     parameter_form=_parameter_form_arcgis_server_mode,
     condition=HostCondition(),
 )
- 
- 
+
+
 # ---------------------------------------------------------------------------
 # Web adaptors
 # ---------------------------------------------------------------------------
- 
+
 def _parameter_form_arcgis_web_adaptors() -> Dictionary:
     return Dictionary(
         elements={
@@ -750,8 +751,8 @@ def _parameter_form_arcgis_web_adaptors() -> Dictionary:
             ),
         }
     )
- 
- 
+
+
 rule_spec_arcgis_web_adaptors = CheckParameters(
     name="arcgis_web_adaptors",
     title=Title("ArcGIS web adaptor handling"),
@@ -760,4 +761,69 @@ rule_spec_arcgis_web_adaptors = CheckParameters(
     condition=HostAndItemCondition(
         item_title=Title("Web adaptor URL"),
     ),
+)
+
+
+# ---------------------------------------------------------------------------
+# Server logs
+# ---------------------------------------------------------------------------
+
+def _parameter_form_arcgis_server_logs() -> Dictionary:
+    return Dictionary(
+        elements={
+            "severe_warn": DictElement(
+                parameter_form=Integer(
+                    title=Title("Warning threshold for SEVERE error count"),
+                    help_text=Help(
+                        "Trigger a WARNING when this many SEVERE log entries appear "
+                        "in the query window. Set to 0 to disable."
+                    ),
+                    prefill=DefaultValue(1),
+                ),
+                required=True,
+            ),
+            "severe_crit": DictElement(
+                parameter_form=Integer(
+                    title=Title("Critical threshold for SEVERE error count"),
+                    help_text=Help(
+                        "Trigger a CRITICAL when this many SEVERE log entries appear "
+                        "in the query window. Set to 0 to disable."
+                    ),
+                    prefill=DefaultValue(10),
+                ),
+                required=True,
+            ),
+            "warning_warn": DictElement(
+                parameter_form=Integer(
+                    title=Title("Warning threshold for WARNING message count"),
+                    help_text=Help(
+                        "Trigger a WARNING when this many WARNING log entries appear "
+                        "in the query window. Set to 0 to disable (recommended default "
+                        "- ArcGIS servers normally produce some WARNING messages)."
+                    ),
+                    prefill=DefaultValue(0),
+                ),
+                required=True,
+            ),
+            "warning_crit": DictElement(
+                parameter_form=Integer(
+                    title=Title("Critical threshold for WARNING message count"),
+                    help_text=Help(
+                        "Trigger a CRITICAL when this many WARNING log entries appear "
+                        "in the query window. Set to 0 to disable."
+                    ),
+                    prefill=DefaultValue(0),
+                ),
+                required=True,
+            ),
+        }
+    )
+
+
+rule_spec_arcgis_server_logs = CheckParameters(
+    name="arcgis_server_logs",
+    title=Title("ArcGIS Server log error thresholds"),
+    topic=Topic.APPLICATIONS,
+    parameter_form=_parameter_form_arcgis_server_logs,
+    condition=HostCondition(),
 )

@@ -26,6 +26,7 @@ from cmk_addons.plugins.arcgis.lib.arcgis_output import (
     portal_indexer_section,
     portal_license_section,
     server_license_section,
+    server_logs_section,
     server_mode_section,
     web_adaptors_section,
 )
@@ -192,6 +193,22 @@ def parse_arguments(argv):
         default=300,
         help="Cache interval in seconds for web adaptor collection. Use 0 to disable.",
     )
+    parser.add_argument("--no-server-logs", action="store_true")
+    parser.add_argument(
+        "--server-logs-cache",
+        type=non_negative_int,
+        default=300,
+        help="Cache interval in seconds for server log queries. Use 0 to disable.",
+    )
+    parser.add_argument(
+        "--server-logs-window",
+        type=non_negative_int,
+        default=15,
+        help=(
+            "Time window in minutes for server log queries (default: 15). "
+            "Should be at least 2x the check interval to avoid gaps between collections."
+        ),
+    )
 
     parser.add_argument(
         "--server-include-regex",
@@ -284,6 +301,7 @@ def server_collection_enabled(args: argparse.Namespace) -> bool:
             not args.no_service_stats,
             not args.no_server_mode,
             not args.no_web_adaptors,
+            not args.no_server_logs,
         ]
     )
 
@@ -804,6 +822,28 @@ def collect_web_adaptors(
     )
 
 
+def collect_server_logs(
+    server_name: str,
+    server_client: ServerClient,
+    collection: CollectionStatus,
+    window_minutes: int,
+    cache_seconds: int,
+) -> None:
+    LOGGER.info(
+        "Collecting server logs for %s (window=%d min)",
+        server_name,
+        window_minutes,
+    )
+    log_data = server_client.get_log_entries(window_minutes)
+    LOGGER.debug("Log data for %s: %s", server_name, log_data)
+    output_json_piggyback(
+        server_name,
+        "arcgis_server_logs",
+        server_logs_section(log_data, window_minutes),
+        cache_interval=cache_interval(cache_seconds),
+    )
+
+
 def collect_server(
     args,
     server: dict,
@@ -943,6 +983,22 @@ def collect_server(
         except Exception as e:
             collection.error("web_adaptors", server_name, e)
             log_collection_error("web_adaptors", server_name, e)
+
+    if args.no_server_logs:
+        log_disabled_collection("server_logs", server_name)
+    else:
+        try:
+            collect_server_logs(
+                server_name,
+                server_client,
+                collection,
+                args.server_logs_window,
+                args.server_logs_cache,
+            )
+            collection.ok("server_logs", server_name)
+        except Exception as e:
+            collection.error("server_logs", server_name, e)
+            log_collection_error("server_logs", server_name, e)
 
 
 def agent_arcgis(args):

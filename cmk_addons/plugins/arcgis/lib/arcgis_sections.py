@@ -152,3 +152,20 @@ class WebAdaptorEntry(BaseModel):
  
 class SectionArcGISWebAdaptors(BaseModel):
     web_adaptors: list[WebAdaptorEntry] = Field(default_factory=list)
+
+
+class ServerLogEntry(BaseModel):
+    level: str
+    message: str
+    time_ms: int
+    source: str = ""
+    machine: str = ""
+    code: int = 0
+ 
+ 
+class SectionArcGISServerLogs(BaseModel):
+    severe_count: int = 0
+    warning_count: int = 0
+    has_more: bool = False
+    window_minutes: int = 15
+    recent_severe: list[ServerLogEntry] = Field(default_factory=list)
