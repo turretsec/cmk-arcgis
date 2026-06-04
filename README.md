@@ -1,58 +1,78 @@
 # Checkmk ArcGIS Enterprise Plugin
 
-A Checkmk special agent for monitoring ArcGIS Enterprise deployments. The agent authenticates to an ArcGIS Portal, collects Portal and federated Server data via the ArcGIS REST Admin API, and emits piggyback sections for federated Server hosts.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Checkmk](https://img.shields.io/badge/Checkmk-2.3.0p1+-brightgreen.svg)](https://checkmk.com/)
+[![ArcGIS Enterprise](https://img.shields.io/badge/ArcGIS%20Enterprise-%2011.1+-blue.svg)](https://enterprise.arcgis.com/)
 
----
+A Checkmk special agent for monitoring ArcGIS Enterprise through the ArcGIS REST Admin API.
+
+The plugin runs from a Checkmk host representing ArcGIS Portal, collects Portal-level health and configuration, discovers federated ArcGIS Server sites, and emits Server data as Checkmk piggyback sections.
+
+## Features
+
+- Portal health, index status, federation validation, license usage, log settings, and Portal logs
+- Federated ArcGIS Server monitoring through Checkmk piggyback data
+- Server machine state, service state, service usage statistics, logs, site mode, web adaptors, datastores, and licenses
+- Graphs for service request rate, failures, timeouts, response time, wait time, running instances, licenses, index counts, and log counts
+- Configurable service and machine state handling
+- Configurable thresholds for service failures, timeouts, response time, licenses, logs, datastores, federation, and collection status
+- Optional collection scope controls and per-section cache intervals
+- Federated server include and exclude regex filtering
+- Portal and Server log suppression filters for known noisy log messages
+
+## Screenshots
+
+### ArcGIS Portal Services
+![ArcGIS portal services](docs/images/example_portal_services.png)
+
+### ArcGIS Server Individual Service Metrics
+![ArcGIS service metrics](docs/images/example_server_service_metrics.png)
 
 ## How it works
 
-The special agent runs against a single Checkmk host representing the ArcGIS Portal. In deployments with a single Portal instance, it's recommended that the host be the machine running ArcGIS Portal. In other cases such as HA deployments, it's recommended to use a host checking the Portal URL itself. It:
+The special agent is configured on one Checkmk host, usually the host representing ArcGIS Portal or the Portal URL.
 
-1. Authenticates to Portal and collects Portal-level data (health, indexer, federation, license, log settings).
-2. Retrieves the list of federated ArcGIS Servers from Portal.
-3. Authenticates to each federated Server and collects server-level data (machines, services, datastores, license, log settings).
-4. Emits Portal data as direct agent sections on the Portal host.
-5. Emits Server data as piggyback sections targeting the corresponding Checkmk host for each federated Server.
-
-```
-Portal host (special agent runs here)
+```text
+Portal host
 ├── arcgis_portal_health
 ├── arcgis_portal_indexer
 ├── arcgis_portal_federation
 ├── arcgis_portal_license
 ├── arcgis_portal_log_settings
+├── arcgis_portal_logs
 └── arcgis_collection_status
 
-Federated Server hosts (piggyback)
+Federated Server hosts, via piggyback
 ├── arcgis_server_machines
 ├── arcgis_services
+├── arcgis_service_stats
+├── arcgis_server_logs
+├── arcgis_server_mode
+├── arcgis_web_adaptors
 ├── arcgis_registered_datastore_validation
 ├── arcgis_managed_datastore_validation
 ├── arcgis_server_license
 └── arcgis_server_log_settings
 ```
 
-Portal machine health data is also emitted per-machine. In a multi-machine Portal deployment, each machine's health section is sent as piggyback to its corresponding Checkmk host. In a single-machine deployment, the section goes directly to the Portal host.
-
----
+Portal machine health is emitted per machine. In a single-machine Portal deployment, the health section goes to the Portal host. In a multi-machine deployment, machine health can be piggybacked to the matching Checkmk host.
 
 ## Requirements
 
-- Checkmk 2.x (modern plug-in API)
-- ArcGIS Enterprise with at least one Portal and one or more federated Servers
+- Checkmk 2.3.0p1+
+- ArcGIS Enterprise v11.1+
 - An ArcGIS administrator account with access to Portal and Server admin endpoints
-- A Checkmk host for the Portal
-- Checkmk hosts for each federated ArcGIS Server machine (to receive piggyback services)
-
----
+- A Checkmk host for Portal or the Portal URL
+- Checkmk hosts for federated ArcGIS Server sites that should receive piggyback data
 
 ## Installation
 
 ### GUI
 
 1. Go to **Setup -> Maintenance -> Extension packages**.
-2. Upload the `.mkp` file and enable it.
-3. Activate changes.
+2. Upload the `.mkp` file.
+3. Enable the package.
+4. Activate changes.
 
 ### Command line
 
@@ -62,82 +82,120 @@ mkp enable arcgis-enterprise <version>
 cmk -R
 ```
 
-Validate after installation:
+Validate the plugin after installation:
 
 ```bash
 cmk-validate-plugins
 ```
 
----
-
 ## Setup
 
-1. Add a Checkmk host for the ArcGIS Portal.
-2. Add Checkmk hosts for each federated ArcGIS Server machine.
-3. Store the ArcGIS admin password in the Checkmk password store (**Setup -> Passwords**).
-4. Create a special agent rule under **Setup -> VM, cloud, container -> ArcGIS Enterprise**, assigned to the Portal host.
-5. Run service discovery on the Portal host and on each federated Server host.
+1. Add or choose a Checkmk host for ArcGIS Portal.
+2. Add Checkmk hosts for federated ArcGIS Server sites or configure piggyback host name translation.
+3. Store the ArcGIS admin password in the Checkmk password store.
+4. Create a rule under **Setup -> VM, cloud, container -> ArcGIS Enterprise**.
+5. Assign the rule to the Portal host.
+6. Run service discovery on the Portal host.
+7. Run service discovery on the federated Server hosts after piggyback data is available.
 
----
+## Configuration
 
-## Special agent configuration
+### Core settings
 
-| Parameter | Description | Default |
+| Setting | Description | Default |
 |---|---|---|
-| Portal URL | Base URL of your Portal, e.g. `https://gis.example.org/portal` | required |
-| Username | ArcGIS admin username | required |
+| Portal URL | Base URL of ArcGIS Portal, for example `https://gis.example.org/portal` | required |
+| Username | ArcGIS administrator username | required |
 | Password | Password from the Checkmk password store | required |
 | Verify SSL | Verify TLS certificates | enabled |
-| Token expiry | How long generated tokens are valid (minutes) | 60 |
+| Token expiry | ArcGIS token lifetime in minutes | 60 |
+| Service statistics window | Time range for ArcGIS Server usage reports | Last hour |
+| Portal logs query window | Lookback window for Portal log checks | 15 minutes |
+| Server logs query window | Lookback window for Server log checks | 15 minutes |
+
+For log checks, set the query window to at least twice the normal Checkmk check interval to avoid gaps between collections.
 
 ### Collection scope
 
-Each collection area can be individually disabled. Disabled collections produce no agent output and do not generate warnings in the Collection Status service.
+Each collection area can be enabled or disabled in the special agent rule.
 
 | Collection | What it collects |
 |---|---|
-| Portal health | Portal machine ready/not-ready state |
-| Portal indexer | Index vs database count per index type; sync status |
-| Portal federation validation | Status of each federated server and overall federation health |
-| Portal license | Member usage and license item expiration |
-| Portal log settings | Log level and log retention |
-| Server machines | Configured and realtime state per server machine |
-| Server services | Configured and realtime state per published service |
-| Registered datastores | Validation status of registered (external) datastores |
-| Managed datastores | Validation status of managed (internal) datastores |
-| Server license | Edition, level, extension, and feature license info |
-| Server log settings | Log level and log retention |
+| Portal health | Portal machine ready state |
+| Portal indexer | Index count vs database count and sync health |
+| Portal federation validation | Per-server and overall federation health |
+| Portal license | Member usage, license item usage, and expiration |
+| Portal log settings | Portal log level and retention settings |
+| Portal logs | Recent Portal WARNING and SEVERE log entries |
+| Server machines | Configured and realtime state for Server machines |
+| Server services | Configured and realtime state for published services |
+| Service usage statistics | Request count, failure rate, timeout rate, response time, wait time, and running instances |
+| Registered datastores | Validation status for external registered datastores |
+| Managed datastores | Validation status for managed internal datastores |
+| Server license | Edition, level, extension, and feature license data |
+| Server log settings | Server log level and retention settings |
+| Server logs | Recent Server WARNING and SEVERE log entries |
+| Server mode | ArcGIS Server site mode, such as EDITABLE or READ_ONLY |
+| Web adaptors | Registered web adaptors and admin access exposure |
 
 ### Cache intervals
 
-Section caching reduces how often expensive or slow collections run. Set to `0` to disable caching for a collection.
+The plugin can write Checkmk cached section headers for slower or heavier collections. Set a cache interval to `0` to disable Checkmk section caching for that collection.
 
 | Collection | Default cache |
-|---|---|
-| Portal federation validation | 300 s |
-| Portal license | 3600 s |
-| Portal log settings | 3600 s |
-| Server machines | 300 s |
-| Registered datastore validation | 900 s |
-| Managed datastore validation | 900 s |
-| Server license | 3600 s |
-| Server log settings | 3600 s |
+|---|---:|
+| Portal federation validation | 300 seconds |
+| Portal license | 3600 seconds |
+| Portal log settings | 3600 seconds |
+| Portal logs | 300 seconds |
+| Server machines | 300 seconds |
+| Service usage statistics | 300 seconds |
+| Registered datastore validation | 900 seconds |
+| Managed datastore validation | 900 seconds |
+| Server license | 3600 seconds |
+| Server log settings | 3600 seconds |
+| Server logs | 300 seconds |
+| Web adaptors | 300 seconds |
 
 ### Federated server filtering
 
-Use regular expressions to limit which federated Servers are collected. Patterns are matched against the server name, URL, and admin URL. Exclude patterns take priority over include patterns.
+Use include and exclude regexes to control which federated Servers are collected. Patterns are matched against the server name, URL, and admin URL. Exclude rules win over include rules.
 
-Example: collect only servers with `/server` in their URL:
-```
+Example: collect only servers with `/server` in the URL:
+
+```text
 /server
 ```
 
 Example: exclude image servers:
-```
+
+```text
 /image
 ```
 
----
+### Log filtering
+
+Portal and Server log checks support ignore filters for known noisy messages.
+
+Filters are applied before log entries are counted, graphed, or shown in recent SEVERE details. Ignored entries are still shown as an ignored count in the service summary.
+
+You can also ignore specific ArcGIS log codes when the message text is not stable.
+
+## Metrics and graphs
+
+The plugin emits Checkmk metrics for the areas below.
+
+| Area | Metrics |
+|---|---|
+| Service usage | Requests, requests per second, failed requests, failure rate, timed-out requests, timeout rate |
+| Service response | Average response time, maximum response time, average wait time, maximum wait time |
+| Service instances | Maximum running instances |
+| Portal indexer | Database count and index count |
+| Licenses | Used count, usage percentage, days until expiration |
+| Portal logs | SEVERE and WARNING log counts |
+| Server logs | SEVERE and WARNING log counts |
+
+Service usage statistics are attached to the existing `ArcGIS Service <name>` checks rather than creating a separate service for every metric.
 
 ## Discovered services
 
@@ -145,199 +203,95 @@ Example: exclude image servers:
 
 | Service | Description |
 |---|---|
-| `ArcGIS Portal Health` | Ready/not-ready state of each Portal machine |
-| `ArcGIS Portal Index <name>` | Per-index database count vs index count (users, groups, items) |
-| `ArcGIS Portal Index Sync` | Overall index sync health |
-| `ArcGIS Federated Server <admin_url>` | Per-server federation validation status |
+| `ArcGIS Portal Health` | Ready state for a Portal machine |
+| `ArcGIS Portal Index <name>` | Database count vs index count for Portal indexes |
+| `ArcGIS Portal Index Sync` | Overall Portal index sync health |
+| `ArcGIS Federated Server <admin_url>` | Validation status for a federated Server |
 | `ArcGIS Portal Federation Status` | Overall federation validation status |
-| `ArcGIS Portal License summary` | Total registered member count and Portal version |
-| `ArcGIS Portal License <kind> <id>` | Per-item license usage percentage and expiration |
-| `ArcGIS Portal Log Settings` | Log level and retention policy |
-| `ArcGIS Collection Status` | Errors and warnings encountered during agent collection |
+| `ArcGIS Portal License summary` | Portal version and total registered member usage |
+| `ArcGIS Portal License <kind> <id>` | Per-item license usage and expiration |
+| `ArcGIS Portal Log Settings` | Portal log level and retention policy |
+| `ArcGIS Portal Logs` | Portal WARNING and SEVERE log counts with recent severe details |
+| `ArcGIS Collection Status` | Warnings and errors encountered during collection |
 
-### Federated Server hosts (piggyback)
+### Federated Server hosts
 
 | Service | Description |
 |---|---|
-| `ArcGIS Server Machine <name>` | Configured and realtime state of each server machine |
-| `ArcGIS Service <folder/name.type>` | Configured and realtime state of each published service |
-| `ArcGIS Registered Datastore <path>` | Validation result for each registered (external) datastore |
-| `ArcGIS Managed Datastore <path>` | Validation result for each managed (internal) datastore |
-| `ArcGIS Server License <kind> <name>` | Expiration and validity for each license item (edition, level, extensions, features) |
-| `ArcGIS Server Log Settings` | Log level and retention policy |
-
----
+| `ArcGIS Server Machine <name>` | Configured and realtime state for a Server machine |
+| `ArcGIS Service <folder/name.type>` | Service state plus optional usage statistics and graphs |
+| `ArcGIS Registered Datastore <path>` | Validation status for a registered datastore |
+| `ArcGIS Managed Datastore <path>` | Validation status for a managed datastore |
+| `ArcGIS Server License <kind> <name>` | Expiration and validity for Server license items |
+| `ArcGIS Server Log Settings` | Server log level and retention policy |
+| `ArcGIS Server Logs` | Server WARNING and SEVERE log counts with recent severe details |
+| `ArcGIS Server Mode` | Server site mode, such as EDITABLE or READ_ONLY |
+| `ArcGIS Web Adaptor <url>` | Registered web adaptor status and admin access exposure |
 
 ## Check parameters
 
-All check parameter rules are found under **Setup -> Service monitoring rules -> Applications**.
+Check parameter rules are found under **Setup -> Service monitoring rules -> Applications**.
 
-### ArcGIS service state handling (`arcgis_services`)
+Commonly tuned rules:
 
-Controls how service configured/realtime state combinations map to Checkmk states.
-
-| Parameter | Default |
+| Rule | What it controls |
 |---|---|
-| Configured STARTED, realtime not STARTED | CRIT |
-| Configured STOPPED, realtime STOPPED | OK |
-| Configured STOPPED, realtime not STOPPED | WARN |
-| STARTING or STOPPING (transitional) | WARN |
-| FAILED | CRIT |
-| Unknown/unexpected states | UNKNOWN |
+| ArcGIS service state and usage statistics | Service state mapping plus failure, timeout, and response time thresholds |
+| ArcGIS Server machine state handling | Machine configured and realtime state mapping |
+| ArcGIS datastore validation handling | State mapping for datastore validation results |
+| ArcGIS log settings policy | Expected log level and retention range |
+| ArcGIS Portal license thresholds | Member usage, license usage, and expiration thresholds |
+| ArcGIS Server license thresholds | Server license expiration and validity states |
+| ArcGIS Portal log error thresholds | Portal SEVERE and WARNING count thresholds |
+| ArcGIS Server log error thresholds | Server SEVERE and WARNING count thresholds |
+| ArcGIS Portal index count handling | State when Portal index and database counts differ |
+| ArcGIS federated server handling | State mapping for federated Server validation |
+| ArcGIS Server mode handling | State for READ_ONLY or unknown Server mode |
+| ArcGIS web adaptor handling | State for missing web adaptors or admin access exposure |
+| ArcGIS collection status handling | State mapping for collection warnings, skipped steps, and errors |
 
-### ArcGIS Server machine state handling (`arcgis_server_machines`)
-
-Same structure as service state handling, applied to server machines.
-
-| Parameter | Default |
-|---|---|
-| Configured STARTED, realtime not STARTED | CRIT |
-| Configured STOPPED, realtime STOPPED | WARN |
-| Configured STOPPED, realtime not STOPPED | WARN |
-| STARTING or STOPPING (transitional) | WARN |
-| Unknown/unexpected states | UNKNOWN |
-
-### ArcGIS datastore validation handling (`arcgis_datastore_validation`)
-
-Applied to both registered and managed datastore validation checks.
-
-| Parameter | Default |
-|---|---|
-| Validation successful | OK |
-| Validation warning | WARN |
-| Validation failure | CRIT |
-| Validation error | CRIT |
-| Validation unsupported (managed datastores only) | OK |
-| Unknown result | UNKNOWN |
-
-### ArcGIS log settings policy (`arcgis_log_settings`)
-
-Applied to both Portal and Server log settings checks.
-
-| Parameter | Default |
-|---|---|
-| Log level WARNING / WARN / SEVERE | OK (always) |
-| Log level INFO | WARN |
-| Logging OFF | WARN |
-| Log level DEBUG / FINE / VERBOSE | CRIT |
-| Log level unknown or empty | UNKNOWN |
-| Unexpected log level | WARN |
-| Log retention unknown | UNKNOWN |
-| Log retention outside expected range | WARN |
-| Minimum expected retention | 7 days |
-| Maximum expected retention | 365 days |
-
-### ArcGIS Portal license thresholds (`arcgis_portal_license`)
-
-| Parameter | Default |
-|---|---|
-| License usage warning threshold | 85% |
-| License usage critical threshold | 95% |
-| Expiration warning | 90 days |
-| Expiration critical | 30 days |
-| Maximum count unknown | UNKNOWN |
-| License expired | CRIT |
-
-### ArcGIS Server license thresholds (`arcgis_server_license`)
-
-| Parameter | Default |
-|---|---|
-| Expiration warning | 90 days |
-| Expiration critical | 30 days |
-| License expired | CRIT |
-| Feature invalid | CRIT |
-| Expiration unknown | UNKNOWN |
-| License missing from agent output | UNKNOWN |
-
-### ArcGIS Portal index count handling (`arcgis_portal_indexer`)
-
-| Parameter | Default |
-|---|---|
-| Database count and index count differ | CRIT |
-| Index missing from agent output | UNKNOWN |
-
-### ArcGIS Portal index sync handling (`arcgis_portal_indexer_sync`)
-
-| Parameter | Default |
-|---|---|
-| Index sync unhealthy | CRIT |
-| Index sync status unknown | UNKNOWN |
-
-### ArcGIS federated server handling (`arcgis_portal_federation_servers`)
-
-| Parameter | Default |
-|---|---|
-| Server reports warnings | WARN |
-| Server unhealthy | CRIT |
-| Server status unknown | UNKNOWN |
-| Server missing from agent output | UNKNOWN |
-
-### ArcGIS Portal federation status handling (`arcgis_portal_federation_status`)
-
-| Parameter | Default |
-|---|---|
-| Federation reports warnings | WARN |
-| Federation unhealthy | CRIT |
-| Federation status unknown | UNKNOWN |
-
-### ArcGIS collection status handling (`arcgis_collection_status`)
-
-| Parameter | Default |
-|---|---|
-| Collection step warning | WARN |
-| Collection step skipped | WARN |
-| Collection step error | CRIT |
-| Collection status unknown | UNKNOWN |
-
----
+Default log thresholds alert on any SEVERE log entry and do not alert on WARNING log counts unless configured.
 
 ## Piggyback host name mapping
 
-The special agent derives piggyback host names from ArcGIS Server names as returned by Portal federation. The server name is used directly as the piggyback target. For Portal machines in a multi-machine deployment, the machine hostname prefix (before the first `.`) is used as the piggyback host name, lowercased.
+Server data is emitted through Checkmk piggyback sections. The piggyback target is derived from the federated Server name returned by Portal.
 
-The target Checkmk host names must match, or Checkmk **host name translation** rules must be used to map piggyback names to existing hosts.
+Portal machine health uses the machine hostname prefix before the first dot and lowercases it when piggybacking to a separate machine host.
 
-Relevant Checkmk configuration areas:
-
-- **Setup -> Hosts -> Host properties**: piggyback data behavior
-- **Setup -> Agents -> Agent access rules -> Host name translations for piggybacked hosts**
-- **Setup -> Agents -> Agent access rules -> Processing of piggybacked host data**
-- **Setup -> Hosts -> Dynamic host management**: automatic host creation from piggyback data
-
----
+The target Checkmk host names must match the piggyback names, or Checkmk host name translation rules must be used.
 
 ## Troubleshooting
 
-### Show the generated agent command
+### Show the generated special agent command
 
 ```bash
 cmk -vv --debug -d <portal-host>
 ```
 
-Look for the `Calling:` line to see the exact command Checkmk generates.
+Look for the `Calling:` line.
 
 ### Run the agent manually
 
-Copy the `Calling:` command and run it as the site user. Add `-v` or `-vv` for more log output:
+Copy the generated command and run it as the Checkmk site user. Add `-v` or `-vv` for more logging.
 
 ```bash
 /omd/sites/<site>/local/lib/python3/cmk_addons/plugins/arcgis/libexec/agent_arcgis \
   --username '<user>' \
-  --password-id '<pw-id>' \
+  --password-id '<password-id>' \
   --portal-url 'https://gis.example.org/portal' \
   -vv \
   <portal-host>
 ```
 
-### Separate agent output from logs
+### Separate Checkmk output from debug logs
 
-The agent writes Checkmk sections to stdout and log messages to stderr:
+The agent writes Checkmk sections to stdout and log messages to stderr.
 
 ```bash
 agent_arcgis ... > /tmp/arcgis_out.txt 2> /tmp/arcgis_err.txt
 ```
 
-### Other useful commands
+### Useful commands
 
 ```bash
 # View raw agent output
@@ -351,39 +305,52 @@ cmk -II --debug <server-host>
 cmk -nv --debug <portal-host>
 cmk -nv --debug <server-host>
 
-# List piggyback data
+# Check piggyback data
 cmk-piggyback list sources
 cmk-piggyback list piggybacked
 ```
 
 ### Common issues
 
-**No services on a federated server host** - Verify the Checkmk host name matches the piggyback name the agent emits. Run the agent manually with `-vv` to see what piggyback host names are being used. Check that server collection is enabled and that no include/exclude regex is filtering out the server.
+**No services on a federated Server host**
 
-**Portal services present but server services missing** - Check that the ArcGIS account can reach the federated server admin endpoint. Look at the `ArcGIS Collection Status` service for errors, or run the agent manually.
+Verify that the Checkmk host name matches the piggyback name emitted by the agent. Run the agent manually with `-vv` to see piggyback targets. Check that server collection is enabled and no include or exclude regex is filtering out the Server.
 
-**SSL warnings** - If SSL verification is disabled, the agent logs a warning. For production, enable SSL verification and ensure the Checkmk site trusts the certificate chain used by ArcGIS Enterprise.
+**Portal services exist, but Server services are missing**
 
-**Collection Status is WARN or CRIT** - The `ArcGIS Collection Status` service summarizes errors encountered during collection. Details are shown in the service output. Run the agent with `-vv` to see full error messages.
+Verify that the ArcGIS account can reach the federated Server admin endpoint. Check the `ArcGIS Collection Status` service for errors.
 
----
+**Service usage graphs are empty**
+
+Verify that service statistics collection is enabled and that the account can create and read temporary ArcGIS Server usage reports. Some services may not return usage data if ArcGIS has no samples for the selected time window.
+
+**Log checks are noisy**
+
+Use Portal or Server log ignore filters for known recurring messages. Ignored entries are excluded from the alerting counts and shown as ignored in the service summary.
+
+**SSL warnings or certificate path errors**
+
+Enable SSL verification in production and ensure the Checkmk site trusts the certificate chain used by ArcGIS Enterprise. If ArcGIS itself logs repeated certificate path errors for known internal endpoints, consider fixing the trust chain first and only suppressing messages after confirming they are expected noise.
 
 ## Security
 
-- Use a dedicated ArcGIS account with the minimum permissions needed for admin endpoint access.
-- Store credentials in the Checkmk password store, not in the rule configuration directly.
-- Do not share debug output that contains Checkmk password store IDs.
-- Enable SSL certificate verification in production environments.
-
----
+- Use a dedicated ArcGIS account with only the admin access needed for monitoring.
+- Store credentials in the Checkmk password store.
+- Keep SSL verification enabled in production.
+- Do not share debug output publicly if it includes internal URLs, host names, tokens, or password store identifiers.
+- Treat log ignore filters carefully. A broad filter can hide real failures.
 
 ## Known limitations
 
-- Tested against ArcGIS Enterprise 11.5 and Checkmk 2.x.
-- ArcGIS Enterprise deployments may return different response shapes for license, datastore, or federation endpoints depending on version and configuration. If a service produces unexpected results, run the agent with `-vv` and inspect the raw API responses.
-- Federated server filtering affects server collection only. The Portal federation validation check still reflects all servers returned by Portal.
-- No performance metrics or graphs are currently included.
+- Tested against ArcGIS Enterprise 11.5 and Checkmk 2.5.x
+- Service usage statistics use ArcGIS Server Usage Reports and require Server admin API access.
+- `ServiceRunningInstancesMax` is requested with other usage report metrics, which is intended for ArcGIS Enterprise 11.1 and newer.
+- Log checks depend on ArcGIS log retention and the configured query window.
+- Log ignore filters intentionally suppress matching messages before counting.
+- OS metrics such as CPU, memory, disk, process state, and filesystem usage are intentionally out of scope. Use the normal Checkmk agent for host-level monitoring. SSL monitoring, although a crucial component of federated servers, has been left out for similar reasons.
 
----
+## License
 
-This project is an independent Checkmk extension and is not affiliated with or endorsed by Checkmk GmbH. Checkmk itself is licensed separately by Checkmk GmbH.
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
+
+This project is an independent Checkmk extension and is not affiliated with or endorsed by Checkmk GmbH or Esri. Checkmk and ArcGIS Enterprise are licensed separately by their respective owners.
