@@ -57,6 +57,51 @@ Federated Server hosts, via piggyback
 
 Portal machine health is emitted per machine. In a single-machine Portal deployment, the health section goes to the Portal host. In a multi-machine deployment, machine health can be piggybacked to the matching Checkmk host.
 
+## Supported deployment topologies
+
+The special agent always runs against Portal and discovers federated Servers from it, so the same agent works across deployment sizes. What changes between topologies is how many Checkmk hosts receive piggyback data and how those host names must be matched. The notes below describe what to expect in each case.
+
+### Single-machine (base) deployment
+
+A base deployment runs Portal and the hosting ArcGIS Server on one machine. Federation discovery returns a single Server, and the agent collects it through the normal Server path.
+
+Portal machine health is emitted directly to the Portal host, because the single-machine short-circuit detects only one Portal machine and does not piggyback.
+
+Server data is still emitted as piggyback under the federated Server name, even though everything lives on one machine. Create a Checkmk host that matches that Server name, or configure piggyback host name translation. If you want Portal and Server services on the same Checkmk host, translate the Server piggyback name to the Portal host name.
+
+### Portal high availability (multi-machine Portal)
+
+In a Portal HA deployment, two Portal machines sit behind a load balancer. The agent enumerates both machines and emits each machine's health to its own Checkmk host, derived from the short hostname. The queried Portal host keeps its own health section locally.
+
+Each Portal machine needs a matching Checkmk host, named by short hostname and lowercased, or piggyback host name translation must map the emitted names to your hosts.
+
+### ArcGIS Server site high availability (multi-machine Server)
+
+For a multi-machine ArcGIS Server site, the agent reports every machine's configured and realtime state, but does so as items inside the single `arcgis_server_machines` section piggybacked to the federated Server name. Machine state for the Server tier is presented at the site level rather than split into separate Checkmk hosts the way Portal machine health is.
+
+Server HA depends on the federated `adminUrl` being a load balancer or web adaptor URL that can reach all machines in the site. This is the configuration Esri recommends for HA sites. If a site was federated using a single machine's admin URL, collection reflects only what that one machine can answer.
+
+Transient load balancer errors during a run surface per collection in the `ArcGIS Collection Status` service rather than failing the whole agent run.
+
+### Mixed federated Server types
+
+Federation can include Server roles other than GIS or hosting Servers, such as Notebook Server, Mission Server, GeoEvent Server, GeoAnalytics Server, and Workflow Manager Server. These roles federate and appear in discovery, but they do not all expose the same admin API surface, so collections such as service usage reports may not apply to them.
+
+The agent does not crash on these. Each unsupported collection fails independently and is reported in the `ArcGIS Collection Status` service. To avoid a noisy status for Server types you do not intend to monitor, use the federated Server include and exclude filters.
+
+Example: exclude a Notebook Server site.
+
+```text
+/notebook
+```
+
+Example: limit collection to GIS and image Servers.
+
+```text
+/server
+/image
+```
+
 ## Requirements
 
 - Checkmk 2.3.0p1+
