@@ -1,0 +1,18 @@
+title: ArcGIS Portal Log Settings
+agents: special
+catalog: app/arcgis
+license: MIT
+distribution: custom
+
+description:
+ This check monitors ArcGIS Portal log level and log retention settings.
+
+ WARNING, WARN, and SEVERE log levels are considered OK by default. INFO is WARN
+ by default. OFF is WARN by default. DEBUG, FINE, FINER, FINEST, and VERBOSE are
+ CRIT by default.
+
+ Retention is checked against a configurable expected range.
+item:
+ This check has no item.
+discovery:
+ One service is discovered when Portal log settings are present.

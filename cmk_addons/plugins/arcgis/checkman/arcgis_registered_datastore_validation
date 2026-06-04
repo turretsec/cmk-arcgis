@@ -1,0 +1,17 @@
+title: ArcGIS Registered Datastore
+agents: special
+catalog: app/arcgis
+license: MIT
+distribution: custom
+
+description:
+ This check monitors validation results for registered ArcGIS Server datastores.
+
+ Registered datastores are external data locations registered with ArcGIS Server.
+ The special agent validates each datastore through the Server admin API and
+ reports success, warning, failure, error, unsupported, or unknown results.
+item:
+ The datastore path. If ArcGIS returns per-machine validation results, the item
+ can include the machine name.
+discovery:
+ One service is discovered for each registered datastore validation result.

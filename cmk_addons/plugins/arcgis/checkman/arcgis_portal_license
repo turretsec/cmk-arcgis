@@ -1,0 +1,20 @@
+title: ArcGIS Portal License
+agents: special
+catalog: app/arcgis
+license: MIT
+distribution: custom
+
+description:
+ This check monitors ArcGIS Portal license usage and expiration data.
+
+ The summary service reports overall Portal member usage. Additional services are
+ discovered for individual license items such as user types, apps, app bundles,
+ and extensions when Portal returns those items.
+item:
+ The item is either summary or a license item in the form "<kind> <id>".
+discovery:
+ A summary service is always discovered when Portal license data is present.
+ Additional services are discovered for license items returned by Portal.
+perfdata:
+ The check emits member usage, license usage percentage, and days until
+ expiration when those values are available.

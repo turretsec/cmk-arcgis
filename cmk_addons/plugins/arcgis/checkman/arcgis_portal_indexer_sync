@@ -1,0 +1,16 @@
+title: ArcGIS Portal Index Sync
+agents: special
+catalog: app/arcgis
+license: MIT
+distribution: custom
+
+description:
+ This check monitors the overall Portal index synchronization status.
+
+ It is separate from the per-index count checks. The per-index checks compare
+ individual database and index counts, while this check reports the overall sync
+ status returned by Portal.
+item:
+ This check has no item.
+discovery:
+ One service is discovered when Portal reports an index sync status.

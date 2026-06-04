@@ -1,0 +1,17 @@
+title: ArcGIS Web Adaptor
+agents: special
+catalog: app/arcgis
+license: MIT
+distribution: custom
+
+description:
+ This check monitors web adaptors registered with an ArcGIS Server site.
+
+ A missing web adaptor is CRIT by default because traffic routed through that
+ adaptor will no longer reach the Server site. A web adaptor with admin access
+ enabled is WARN by default because it exposes the ArcGIS Server Admin REST API
+ through the web adaptor URL.
+item:
+ The web adaptor URL.
+discovery:
+ One service is discovered for each web adaptor returned by the Server admin API.

@@ -1,0 +1,19 @@
+title: ArcGIS Portal Index
+agents: special
+catalog: app/arcgis
+license: MIT
+distribution: custom
+
+description:
+ This check compares the Portal database count and index count for each Portal
+ index category, such as users, groups, and items.
+
+ Matching counts indicate that the Portal index is in sync with the backing
+ database. A mismatch usually means the Portal index is stale, incomplete, or
+ still rebuilding.
+item:
+ The Portal index name, for example users, groups, or items.
+discovery:
+ One service is discovered for each index reported by Portal.
+perfdata:
+ The check emits the database count and index count as metrics.

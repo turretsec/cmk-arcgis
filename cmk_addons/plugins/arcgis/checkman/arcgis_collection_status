@@ -1,0 +1,17 @@
+title: ArcGIS Collection Status
+agents: special
+catalog: app/arcgis
+license: MIT
+distribution: custom
+
+description:
+ This check reports errors and warnings encountered while the ArcGIS special
+ agent collected data.
+
+ The collection status service is a safety net for the special agent itself. It
+ can show collection failures for Portal, federation, Server sites, service
+ statistics, datastores, logs, licenses, and other collection steps.
+item:
+ This check has no item.
+discovery:
+ One service is discovered when collection status data is present.

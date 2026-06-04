@@ -1,0 +1,16 @@
+title: ArcGIS Portal Health
+agents: special
+catalog: app/arcgis
+license: MIT
+distribution: custom
+
+description:
+ This check monitors the readiness state of an ArcGIS Portal machine.
+
+ The special agent queries the Portal admin machine status endpoint and reports
+ whether the Portal machine is ready. In multi-machine Portal deployments, health
+ data may be emitted as piggyback data for each Portal machine.
+item:
+ This check has no item. One service is created for the Portal health section.
+discovery:
+ One service is discovered when Portal health data is present.

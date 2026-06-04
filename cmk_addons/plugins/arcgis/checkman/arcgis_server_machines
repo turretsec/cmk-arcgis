@@ -1,0 +1,18 @@
+title: ArcGIS Server Machine
+agents: special
+catalog: app/arcgis
+license: MIT
+distribution: custom
+
+description:
+ This check monitors the configured state and realtime state of ArcGIS Server
+ machines.
+
+ A machine can be configured as STARTED or STOPPED, while the realtime state
+ shows what the machine is actually doing. The rule parameters control how
+ mismatches and transitional states are mapped to Checkmk states.
+item:
+ The ArcGIS Server machine name.
+discovery:
+ One service is discovered for each ArcGIS Server machine returned by the Server
+ admin API.

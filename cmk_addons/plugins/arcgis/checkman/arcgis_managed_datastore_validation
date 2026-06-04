@@ -1,0 +1,16 @@
+title: ArcGIS Managed Datastore
+agents: special
+catalog: app/arcgis
+license: MIT
+distribution: custom
+
+description:
+ This check monitors validation results for managed ArcGIS Server datastores.
+
+ Managed datastores are internal ArcGIS-managed data stores associated with the
+ Server site. Unsupported validations are treated according to the datastore
+ validation rule parameters and are OK by default.
+item:
+ The managed datastore path.
+discovery:
+ One service is discovered for each managed datastore validation result.

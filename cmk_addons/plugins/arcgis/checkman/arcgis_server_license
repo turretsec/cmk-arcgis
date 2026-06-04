@@ -1,0 +1,19 @@
+title: ArcGIS Server License
+agents: special
+catalog: app/arcgis
+license: MIT
+distribution: custom
+
+description:
+ This check monitors ArcGIS Server license items.
+
+ The check discovers license entries for Server edition, level, extensions, and
+ features when returned by the Server admin API. It reports expiration status and
+ feature validity when available.
+item:
+ The license item kind and name.
+discovery:
+ One service is discovered for each ArcGIS Server license item returned by the
+ Server admin API.
+perfdata:
+ The check can emit days until expiration for expiring license items.

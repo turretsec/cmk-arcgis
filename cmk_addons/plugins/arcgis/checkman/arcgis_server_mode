@@ -1,0 +1,16 @@
+title: ArcGIS Server Mode
+agents: special
+catalog: app/arcgis
+license: MIT
+distribution: custom
+
+description:
+ This check monitors the ArcGIS Server site mode.
+
+ EDITABLE is considered OK. READ_ONLY is a valid maintenance state, but is WARN
+ by default because services cannot be started, stopped, or modified while the
+ site is read-only. Unknown modes are UNKNOWN by default.
+item:
+ This check has no item.
+discovery:
+ One service is discovered when Server mode data is present.

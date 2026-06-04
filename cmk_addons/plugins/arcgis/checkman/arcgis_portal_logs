@@ -1,0 +1,21 @@
+title: ArcGIS Portal Logs
+agents: special
+catalog: app/arcgis
+license: MIT
+distribution: custom
+
+description:
+ This check monitors recent ArcGIS Portal WARNING and SEVERE log entries.
+
+ The special agent queries Portal logs over a configurable time window. SEVERE
+ and WARNING entries are counted separately. Known noisy log messages can be
+ suppressed with ignore regexes or ignored log codes in the special agent rule.
+ Ignored entries are counted separately and shown in the service summary.
+
+ Recent SEVERE entries are included in the service details for triage.
+item:
+ This check has no item.
+discovery:
+ One service is discovered when Portal log data is present.
+perfdata:
+ The check emits Portal SEVERE and WARNING log counts as metrics.

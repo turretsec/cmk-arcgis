@@ -1,0 +1,15 @@
+title: ArcGIS Portal Federation Status
+agents: special
+catalog: app/arcgis
+license: MIT
+distribution: custom
+
+description:
+ This check monitors the overall federation validation status returned by Portal.
+
+ It is intended as a summary of the Portal federation state. Per-server federation
+ details are exposed by the ArcGIS Federated Server checks.
+item:
+ This check has no item.
+discovery:
+ One service is discovered when Portal federation validation data is present.

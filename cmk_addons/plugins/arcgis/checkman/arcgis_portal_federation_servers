@@ -1,0 +1,18 @@
+title: ArcGIS Federated Server
+agents: special
+catalog: app/arcgis
+license: MIT
+distribution: custom
+
+description:
+ This check monitors the federation validation status of each ArcGIS Server
+ registered with Portal.
+
+ Portal federation validation can report success, success with warnings, or
+ failure for each federated Server. This check exposes each federated Server as
+ its own service on the Portal host.
+item:
+ The federated Server admin URL.
+discovery:
+ One service is discovered for each federated Server returned by Portal
+ federation validation.
