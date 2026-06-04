@@ -7,6 +7,7 @@ from cmk.agent_based.v2 import (
     CheckPlugin,
     CheckResult,
     DiscoveryResult,
+    Metric,
     Result,
     Service,
     State,
@@ -47,7 +48,6 @@ def _param_int(params: Mapping[str, Any], key: str) -> int:
 def _days_until_expiration(expiration_ms: int) -> int | None:
     if expiration_ms <= 0:
         return None
-
     now_ms = int(time.time() * 1000)
     return int((expiration_ms - now_ms) / 86_400_000)
 
@@ -134,17 +134,17 @@ def check_arcgis_server_license(
         )
         return
 
-    expiration_state, expiration_text = _expiration_summary(
-        license_item,
-        params,
-    )
-
-    validity_state, validity_text = _validity_summary(
-        license_item,
-        params,
-    )
-
+    expiration_state, expiration_text = _expiration_summary(license_item, params)
+    validity_state, validity_text = _validity_summary(license_item, params)
     final_state = worst_state(expiration_state, validity_state)
+
+    # Expiration days as a metric - gives a declining trend line so operators
+    # can see licenses approaching expiration over time, not just the moment
+    # they trip the warn/crit threshold.
+    if license_item.can_expire:
+        days = _days_until_expiration(license_item.expiration)
+        if days is not None:
+            yield Metric("arcgis_license_expiration_days", float(max(0, days)))
 
     summary_parts = [
         f"{license_item.kind} {license_item.name}",

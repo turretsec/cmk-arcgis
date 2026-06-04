@@ -25,7 +25,7 @@ from cmk_addons.plugins.arcgis.lib.arcgis_check_helpers import (
 
 DEFAULT_WEB_ADAPTOR_PARAMS: Mapping[str, Any] = {
     # An adaptor vanishing from the registered list means requests to its URL
-    # will no longer reach ArcGIS Server — treat as CRIT by default.
+    # will no longer reach ArcGIS Server - treat as CRIT by default.
     "missing_state": "crit",
     # isAdminEnabled exposes the Server Admin REST API through the web adaptor.
     # Most security hardening guides recommend keeping this disabled; WARN by
@@ -83,7 +83,7 @@ def check_arcgis_web_adaptors(
         admin_state = state_from_param(_param_str(params, "admin_enabled_state"))
         yield Result(
             state=admin_state,
-            summary=f"Admin access enabled — {', '.join(summary_parts)}",
+            summary=f"Admin access enabled - {', '.join(summary_parts)}",
             details=(
                 "isAdminEnabled is true on this web adaptor. The ArcGIS Server "
                 "Admin REST API is accessible through this adaptor's URL. "

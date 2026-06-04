@@ -189,3 +189,135 @@ graph_arcgis_instance_utilization = Graph(
     title=Title("Running Instances"),
     compound_lines=["arcgis_max_running_instances"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Portal Indexer metrics
+# ---------------------------------------------------------------------------
+
+metric_arcgis_index_database_count = Metric(
+    name="arcgis_index_database_count",
+    title=Title("Database count"),
+    unit=Unit(DecimalNotation("")),
+    color=Color.BLUE,
+)
+
+metric_arcgis_index_count = Metric(
+    name="arcgis_index_count",
+    title=Title("Index count"),
+    unit=Unit(DecimalNotation("")),
+    color=Color.GREEN,
+)
+
+# Both counts on the same graph: when in sync the lines overlap perfectly.
+# Any visible gap means the index is drifting behind the database, which is
+# the key signal this check is designed to catch.
+graph_arcgis_portal_index_counts = Graph(
+    name="arcgis_portal_index_counts",
+    title=Title("Portal Index vs Database Count"),
+    simple_lines=[
+        "arcgis_index_database_count",
+        "arcgis_index_count",
+    ],
+)
+
+
+# ---------------------------------------------------------------------------
+# License metrics
+# ---------------------------------------------------------------------------
+
+# Portal summary (named-user members)
+metric_arcgis_portal_members_used = Metric(
+    name="arcgis_portal_members_used",
+    title=Title("Members used"),
+    unit=Unit(DecimalNotation("")),
+    color=Color.BLUE,
+)
+
+metric_arcgis_portal_member_usage_percent = Metric(
+    name="arcgis_portal_member_usage_percent",
+    title=Title("Member license usage"),
+    unit=Unit(DecimalNotation("%")),
+    color=Color.BLUE,
+)
+
+# Portal per-item / server license usage
+metric_arcgis_license_used = Metric(
+    name="arcgis_license_used",
+    title=Title("Licenses used"),
+    unit=Unit(DecimalNotation("")),
+    color=Color.BLUE,
+)
+
+metric_arcgis_license_usage_percent = Metric(
+    name="arcgis_license_usage_percent",
+    title=Title("License usage"),
+    unit=Unit(DecimalNotation("%")),
+    color=Color.BLUE,
+)
+
+# Days remaining (portal per-item + server license)
+metric_arcgis_license_expiration_days = Metric(
+    name="arcgis_license_expiration_days",
+    title=Title("Days until expiration"),
+    unit=Unit(DecimalNotation(" days")),
+    color=Color.YELLOW,
+)
+
+
+# ---------------------------------------------------------------------------
+# License perfometers
+# ---------------------------------------------------------------------------
+
+# Portal member usage: fills 0->100% as members are consumed.
+perfometer_arcgis_portal_license = Perfometer(
+    name="arcgis_portal_license",
+    focus_range=FocusRange(Closed(0), Closed(100)),
+    segments=["arcgis_portal_member_usage_percent"],
+)
+
+# Per-item license usage (portal license items that have counts).
+perfometer_arcgis_license_usage = Perfometer(
+    name="arcgis_license_usage",
+    focus_range=FocusRange(Closed(0), Closed(100)),
+    segments=["arcgis_license_usage_percent"],
+)
+
+
+# ---------------------------------------------------------------------------
+# License graphs
+# ---------------------------------------------------------------------------
+
+# Portal member usage with warn/crit threshold lines.
+graph_arcgis_portal_member_usage = Graph(
+    name="arcgis_portal_member_usage",
+    title=Title("Portal Member License Usage"),
+    minimal_range=MinimalRange(0, 100),
+    compound_lines=["arcgis_portal_member_usage_percent"],
+    simple_lines=[
+        WarningOf("arcgis_portal_member_usage_percent"),
+        CriticalOf("arcgis_portal_member_usage_percent"),
+    ],
+)
+
+# Per-item license usage - applies to portal per-item checks.
+graph_arcgis_license_usage = Graph(
+    name="arcgis_license_usage",
+    title=Title("License Usage"),
+    minimal_range=MinimalRange(0, 100),
+    compound_lines=["arcgis_license_usage_percent"],
+    simple_lines=[
+        WarningOf("arcgis_license_usage_percent"),
+        CriticalOf("arcgis_license_usage_percent"),
+    ],
+)
+
+# Days until expiration - a declining trend line approaching zero.
+# MinimalRange(0, 365) keeps the y-axis readable even for licenses with
+# years remaining; the line will visibly approach the x-axis as expiry nears.
+graph_arcgis_license_expiration = Graph(
+    name="arcgis_license_expiration",
+    title=Title("Days Until License Expiration"),
+    minimal_range=MinimalRange(0, 365),
+    compound_lines=["arcgis_license_expiration_days"],
+)

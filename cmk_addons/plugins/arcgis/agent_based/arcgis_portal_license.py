@@ -1,12 +1,13 @@
+import time
 from collections.abc import Mapping
 from typing import Any
-import time
 
 from cmk.agent_based.v2 import (
     AgentSection,
     CheckPlugin,
     CheckResult,
     DiscoveryResult,
+    Metric,
     Result,
     Service,
     State,
@@ -78,7 +79,6 @@ def _usage_summary(
 def _days_until_expiration(expiration_ms: int) -> int | None:
     if expiration_ms <= 0:
         return None
-
     now_ms = int(time.time() * 1000)
     return int((expiration_ms - now_ms) / 86_400_000)
 
@@ -139,13 +139,22 @@ def check_arcgis_portal_license(
         maximum = section.summary.maximum
         version = section.summary.version
 
-        usage_state, usage_text = _usage_summary(
-            current,
-            maximum,
-            params,
-        )
+        usage_state, usage_text = _usage_summary(current, maximum, params)
 
-        # The summary item is member usage only, no expiration attached.
+        # Metrics for the summary service - lets you graph member consumption
+        # over time and see a perfometer in the service table.
+        yield Metric("arcgis_portal_members_used", float(current))
+        if maximum > 0:
+            usage_percent = current / maximum * 100.0
+            warn = _param_float(params, "usage_warn_percent")
+            crit = _param_float(params, "usage_crit_percent")
+            yield Metric(
+                "arcgis_portal_member_usage_percent",
+                usage_percent,
+                levels=(warn, crit),
+                boundaries=(0.0, 100.0),
+            )
+
         if maximum <= 0:
             yield Result(
                 state=usage_state,
@@ -182,6 +191,26 @@ def check_arcgis_portal_license(
         license_item.expiration,
         params,
     )
+
+    # Metrics for per-item license services.
+    if license_item.maximum > 0:
+        usage_percent = license_item.current / license_item.maximum * 100.0
+        warn = _param_float(params, "usage_warn_percent")
+        crit = _param_float(params, "usage_crit_percent")
+        yield Metric("arcgis_license_used", float(license_item.current))
+        yield Metric(
+            "arcgis_license_usage_percent",
+            usage_percent,
+            levels=(warn, crit),
+            boundaries=(0.0, 100.0),
+        )
+
+    days = _days_until_expiration(license_item.expiration)
+    if days is not None:
+        # Store days remaining as a metric so the decline toward expiration
+        # is visible as a trend line.  No upper levels - lower is worse and
+        # the Result state already handles the threshold logic.
+        yield Metric("arcgis_license_expiration_days", float(max(0, days)))
 
     yield Result(
         state=worst_state(usage_state, expiration_state),

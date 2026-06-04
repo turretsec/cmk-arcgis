@@ -345,7 +345,7 @@ def _service_to_resource_uri(service: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Collection functions — Portal
+# Collection functions - Portal
 # ---------------------------------------------------------------------------
 
 def collect_portal(
@@ -484,7 +484,7 @@ def collect_portal(
 
 
 # ---------------------------------------------------------------------------
-# Collection functions — Server
+# Collection functions - Server
 # ---------------------------------------------------------------------------
 
 def collect_server_machines(
