@@ -119,3 +119,19 @@ class SectionArcGISLogSettings(BaseModel):
     level: str = "UNKNOWN"
     max_log_file_age: int | None = None
     log_dir: str | None = None
+
+class ServiceStatsEntry(BaseModel):
+    service_name: str
+    window_seconds: int
+    request_count: int = 0
+    failed_requests: int = 0
+    timed_out_requests: int = 0
+    avg_response_time_ms: float | None = None
+    max_response_time_ms: float | None = None
+    avg_wait_time_ms: float | None = None
+    max_wait_time_ms: float | None = None
+    max_running_instances: int | None = None
+ 
+ 
+class SectionArcGISServiceStats(BaseModel):
+    services: list[ServiceStatsEntry] = Field(default_factory=list)

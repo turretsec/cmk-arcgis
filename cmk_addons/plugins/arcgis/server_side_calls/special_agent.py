@@ -9,9 +9,11 @@ from cmk.server_side_calls.v1 import (
     SpecialAgentConfig,
 )
 
+
 class ServerFilterParams(BaseModel):
     include_patterns: list[str] = Field(default_factory=list)
     exclude_patterns: list[str] = Field(default_factory=list)
+
 
 class CacheIntervalParams(BaseModel):
     portal_federation: int = Field(default=300, ge=0)
@@ -22,6 +24,7 @@ class CacheIntervalParams(BaseModel):
     managed_datastores: int = Field(default=900, ge=0)
     server_license: int = Field(default=3600, ge=0)
     server_log_settings: int = Field(default=3600, ge=0)
+    service_stats: int = Field(default=300, ge=0)
 
 
 class CollectionParams(BaseModel):
@@ -32,6 +35,7 @@ class CollectionParams(BaseModel):
     portal_log_settings: bool = True
     server_machines: bool = True
     server_services: bool = True
+    server_service_stats: bool = True
     registered_datastores: bool = True
     managed_datastores: bool = True
     server_license: bool = True
@@ -44,6 +48,7 @@ class Params(BaseModel):
     portal_url: str
     verify_ssl: bool = True
     token_expiry: int = 60
+    service_stats_since: str = "LAST_HOUR"
     collections: CollectionParams = Field(default_factory=CollectionParams)
     cache_intervals: CacheIntervalParams = Field(default_factory=CacheIntervalParams)
     server_filter: ServerFilterParams = Field(default_factory=ServerFilterParams)
@@ -82,6 +87,8 @@ def _append_cache_interval_args(
             str(cache_intervals.server_license),
             "--server-log-settings-cache",
             str(cache_intervals.server_log_settings),
+            "--service-stats-cache",
+            str(cache_intervals.service_stats),
         ]
     )
 
@@ -98,6 +105,7 @@ def _append_disabled_collection_flags(
         (collections.portal_log_settings, "--no-portal-log-settings"),
         (collections.server_machines, "--no-server-machines"),
         (collections.server_services, "--no-server-services"),
+        (collections.server_service_stats, "--no-service-stats"),
         (collections.registered_datastores, "--no-registered-datastores"),
         (collections.managed_datastores, "--no-managed-datastores"),
         (collections.server_license, "--no-server-license"),
@@ -122,6 +130,8 @@ def _generate_arcgis_command(
         params.portal_url,
         "--token-expiry",
         str(params.token_expiry),
+        "--service-stats-since",
+        params.service_stats_since,
     ]
 
     if not params.verify_ssl:

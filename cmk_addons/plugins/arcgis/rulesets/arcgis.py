@@ -1,16 +1,16 @@
 from cmk.rulesets.v1 import Title, Help, Label
 from cmk.rulesets.v1.form_specs import (
-    Dictionary,
-    DictElement,
-    String,
-    Password,
     BooleanChoice,
-    List,
-    Integer,
     DefaultValue,
+    DictElement,
+    Dictionary,
     FieldSize,
+    Integer,
+    List,
     SingleChoice,
     SingleChoiceElement,
+    String,
+    Password,
 )
 from cmk.rulesets.v1.rule_specs import SpecialAgent, Topic
 
@@ -49,26 +49,22 @@ def _server_filter_form() -> Dictionary:
         },
     )
 
-def _cache_interval(
-    title: str,
-    default: int,
-) -> Integer:
+
+def _cache_interval(title: str, default: int) -> Integer:
     return Integer(
         title=Title(title),
         unit_symbol="seconds",
         prefill=DefaultValue(default),
     )
 
-def _collection_toggle(
-    title: str,
-    label: str,
-    default: bool = True,
-) -> BooleanChoice:
+
+def _collection_toggle(title: str, label: str, default: bool = True) -> BooleanChoice:
     return BooleanChoice(
         title=Title(title),
         label=Label(label),
         prefill=DefaultValue(default),
     )
+
 
 def _cache_intervals_form() -> Dictionary:
     return Dictionary(
@@ -79,63 +75,44 @@ def _cache_intervals_form() -> Dictionary:
         ),
         elements={
             "portal_federation": DictElement(
-                parameter_form=_cache_interval(
-                    "Portal federation validation",
-                    300,
-                ),
+                parameter_form=_cache_interval("Portal federation validation", 300),
                 required=False,
             ),
             "portal_license": DictElement(
-                parameter_form=_cache_interval(
-                    "Portal license",
-                    3600,
-                ),
+                parameter_form=_cache_interval("Portal license", 3600),
                 required=False,
             ),
             "portal_log_settings": DictElement(
-                parameter_form=_cache_interval(
-                    "Portal log settings",
-                    3600,
-                ),
+                parameter_form=_cache_interval("Portal log settings", 3600),
                 required=False,
             ),
             "server_machines": DictElement(
-                parameter_form=_cache_interval(
-                    "Server machines",
-                    300,
-                ),
+                parameter_form=_cache_interval("Server machines", 300),
                 required=False,
             ),
             "registered_datastores": DictElement(
-                parameter_form=_cache_interval(
-                    "Registered datastore validation",
-                    900,
-                ),
+                parameter_form=_cache_interval("Registered datastore validation", 900),
                 required=False,
             ),
             "managed_datastores": DictElement(
-                parameter_form=_cache_interval(
-                    "Managed datastore validation",
-                    900,
-                ),
+                parameter_form=_cache_interval("Managed datastore validation", 900),
                 required=False,
             ),
             "server_license": DictElement(
-                parameter_form=_cache_interval(
-                    "Server license",
-                    3600,
-                ),
+                parameter_form=_cache_interval("Server license", 3600),
                 required=False,
             ),
             "server_log_settings": DictElement(
-                parameter_form=_cache_interval(
-                    "Server log settings",
-                    3600,
-                ),
+                parameter_form=_cache_interval("Server log settings", 3600),
+                required=False,
+            ),
+            "service_stats": DictElement(
+                parameter_form=_cache_interval("Service usage statistics", 300),
                 required=False,
             ),
         },
     )
+
 
 def _collections_form() -> Dictionary:
     return Dictionary(
@@ -190,6 +167,13 @@ def _collections_form() -> Dictionary:
                 ),
                 required=False,
             ),
+            "server_service_stats": DictElement(
+                parameter_form=_collection_toggle(
+                    "Service usage statistics",
+                    "Collect ArcGIS Server service usage statistics (requires usage reports enabled on the server)",
+                ),
+                required=False,
+            ),
             "registered_datastores": DictElement(
                 parameter_form=_collection_toggle(
                     "Registered datastores",
@@ -221,6 +205,7 @@ def _collections_form() -> Dictionary:
         },
     )
 
+
 def _parameter_form() -> Dictionary:
     return Dictionary(
         elements={
@@ -241,7 +226,9 @@ def _parameter_form() -> Dictionary:
             "portal_url": DictElement(
                 parameter_form=String(
                     title=Title("Portal URL"),
-                    help_text=Help("Base URL of your Portal e.g. https://portal.example.com/arcgis"),
+                    help_text=Help(
+                        "Base URL of your Portal e.g. https://portal.example.com/arcgis"
+                    ),
                     field_size=FieldSize.LARGE,
                 ),
                 required=True,
@@ -259,6 +246,26 @@ def _parameter_form() -> Dictionary:
                     title=Title("Token expiry (minutes)"),
                     help_text=Help("How long the admin token is valid for"),
                     prefill=DefaultValue(60),
+                ),
+                required=False,
+            ),
+            "service_stats_since": DictElement(
+                parameter_form=SingleChoice(
+                    title=Title("Service statistics time window"),
+                    help_text=Help(
+                        "Time window used when querying service usage statistics. "
+                        "Last hour uses a rolling CUSTOM window (now minus 60 minutes) "
+                        "with 10-minute aggregation intervals, matching the behavior of "
+                        "ArcGIS Monitor dashboards. Longer windows give trend data but "
+                        "metrics will lag behind real activity."
+                    ),
+                    elements=[
+                        SingleChoiceElement(name="LAST_HOUR", title=Title("Last hour (recommended)")),
+                        SingleChoiceElement(name="LAST_DAY", title=Title("Last 24 hours")),
+                        SingleChoiceElement(name="LAST_WEEK", title=Title("Last 7 days")),
+                        SingleChoiceElement(name="LAST_MONTH", title=Title("Last 30 days")),
+                    ],
+                    prefill=DefaultValue("LAST_HOUR"),
                 ),
                 required=False,
             ),

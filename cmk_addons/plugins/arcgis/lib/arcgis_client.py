@@ -1,16 +1,9 @@
 import json
 import requests
 from pathlib import Path
+import time
 
 from cmk.utils import password_store 
-
-# from cmk_addons.plugins.arcgis.lib.arcgis_models import (
-#     PortalMachine,
-#     PortalMachineHealth,
-#     PortalIndex,
-#     PortalIndexerStatus,
-#     ArcGISServiceStatus
-# )
 
 class ArcGISTokenProvider:
     def __init__(
@@ -235,7 +228,6 @@ class ServerClient:
             svc_type = report["type"]
             full_name = f"{folder}/{name}.{svc_type}".lstrip("/")
             result[full_name] = report.get("status", {})
-        #print(f"Parsed service statuses: {result}")
         return result
     
     def get_datastores(self, managed: bool) -> list[dict]:
@@ -255,3 +247,124 @@ class ServerClient:
     
     def get_log_settings(self) -> dict:
         return self.get_json("/admin/logs/settings")
+    
+
+    def create_usage_report(
+        self,
+        report_name: str,
+        since: str,
+        queries: list[dict],
+        metadata: dict | None = None,
+        from_ms: int | None = None,
+        to_ms: int | None = None,
+        aggregation_interval: int | None = None,
+    ) -> dict:
+        """Create a usage report on the server.
+ 
+        Pass ``metadata={"temp": True}`` for a transient report that should be
+        deleted after querying.  The report name must be unique.
+ 
+        For ``since="CUSTOM"`` supply ``from_ms`` and ``to_ms`` as millisecond
+        epoch timestamps.  ``aggregation_interval`` (minutes) controls the
+        time-slice granularity; when omitted the server uses its default.
+        """
+        report: dict = {
+            "reportname": report_name,
+            "since": since,
+            "queries": queries,
+            "metadata": json.dumps(metadata or {}),
+        }
+        if from_ms is not None:
+            report["from"] = from_ms
+        if to_ms is not None:
+            report["to"] = to_ms
+        if aggregation_interval is not None:
+            report["aggregationInterval"] = aggregation_interval
+ 
+        return self.post_json(
+            "/admin/usagereports/add",
+            {"usagereport": json.dumps(report)},
+        )
+ 
+    def get_usage_report_data(self, report_name: str) -> dict:
+        """Retrieve aggregated data for a previously created usage report."""
+        return self.get_json(
+            f"/admin/usagereports/{report_name}/data",
+            {"filter": '{"machines":"*"}'},
+        )
+ 
+    def delete_usage_report(self, report_name: str) -> dict:
+        """Delete a usage report by name."""
+        return self.post_json(f"/admin/usagereports/{report_name}/delete")
+ 
+    def get_service_stats(
+        self,
+        service_resource_uris: list[str],
+        since: str = "LAST_HOUR",
+    ) -> dict:
+        """Fetch per-service usage statistics using a transient usage report.
+ 
+        Creates a temporary report covering all requested *service_resource_uris*,
+        queries its data, deletes it, and returns the raw report dict.
+ 
+        ``since`` controls the time window.  The special value ``"LAST_HOUR"``
+        maps to a CUSTOM window of ``now - 1 hour`` to ``now`` with a 10-minute
+        aggregation interval (6 data points), matching the "within the last hour"
+        view used by ArcGIS Monitor dashboards.  The standard values
+        ``"LAST_DAY"``, ``"LAST_WEEK"``, and ``"LAST_MONTH"`` are passed to the
+        API directly.
+ 
+        All metrics are requested in a single query (valid from ArcGIS Enterprise
+        11.1+, where ServiceRunningInstancesMax can be combined with the others).
+ 
+        Returns an empty dict when *service_resource_uris* is empty.
+        """
+        if not service_resource_uris:
+            return {}
+ 
+        report_name = f"checkmk_{int(time.time() * 1000)}"
+ 
+        queries = [
+            {
+                "resourceURIs": service_resource_uris,
+                "metrics": [
+                    "RequestCount",
+                    "RequestsFailed",
+                    "RequestsTimedOut",
+                    "RequestAvgResponseTime",
+                    "RequestMaxResponseTime",
+                    "RequestAvgWaitTime",
+                    "RequestMaxWaitTime",
+                    "ServiceRunningInstancesMax",
+                ],
+            }
+        ]
+ 
+        metadata = {"temp": True, "title": report_name, "managerReport": False}
+ 
+        if since == "LAST_HOUR":
+            # Use CUSTOM with dynamic timestamps so every collection run
+            # reflects "the last 60 minutes" rather than a fixed calendar day.
+            # 10-minute intervals yield 6 data points, matching ArcGIS Monitor.
+            now_ms = int(time.time() * 1000)
+            self.create_usage_report(
+                report_name,
+                "CUSTOM",
+                queries,
+                metadata,
+                from_ms=now_ms - 3_600_000,
+                to_ms=now_ms,
+                aggregation_interval=10,
+            )
+        else:
+            self.create_usage_report(report_name, since, queries, metadata)
+ 
+        try:
+            return self.get_usage_report_data(report_name)
+        finally:
+            # Best-effort cleanup: a missed delete leaves a harmless temp report
+            # that the server will eventually expire.
+            try:
+                self.delete_usage_report(report_name)
+            except Exception:
+                pass

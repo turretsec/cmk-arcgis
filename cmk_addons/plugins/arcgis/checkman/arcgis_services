@@ -1,0 +1,82 @@
+title: ArcGIS Server Service State and Usage Statistics
+agents: special
+catalog: app/arcgis
+license: GPL
+distribution: check_mk
+description:
+ Monitors the configured and realtime state of individual ArcGIS Server
+ services published on federated ArcGIS Server instances, and optionally
+ their usage statistics over a rolling time window.
+
+ The state check compares the service's configured state (the intended
+ state set by an administrator) against its realtime state (what the
+ server actually reports). A service configured as STARTED but not
+ running produces a CRIT result by default. A service intentionally
+ stopped (configured STOPPED, realtime STOPPED) produces OK by default.
+ Services in transitional states such as STARTING or STOPPING produce
+ WARN by default.
+
+ When the {arcgis_service_stats} section is also present - which requires
+ the service statistics collection to be enabled in the special agent rule
+ and usage reports to be enabled on the ArcGIS Server site - the check
+ additionally reports per-service usage metrics for the configured time
+ window (default: last hour). All metrics are aggregated from the
+ ArcGIS Server Usage Reports API and represent the rolling window, not a
+ point-in-time snapshot.
+
+ The following usage metrics are collected when available:
+
+ {Request count} - Total number of requests received in the window.
+
+ {Requests per second} - Average request rate over the window. With the
+ default LAST_HOUR window this reflects recent load closely.
+
+ {Failed requests / Failure rate} - Count and percentage of requests that
+ returned a failure response. Alert thresholds for failure rate are
+ configurable.
+
+ {Timed-out requests / Timeout rate} - Count and percentage of requests
+ that exceeded the server-side timeout. Alert thresholds are configurable.
+
+ {Average response time} - Mean response time in milliseconds across all
+ non-null time slices in the window. Optional warn/crit thresholds can be
+ configured per service.
+
+ {Maximum response time} - Highest response time recorded in any time
+ slice of the window.
+
+ {Average wait time} - Mean time in milliseconds that requests spent
+ waiting for a free service instance. Only non-zero when the instance
+ pool was saturated and requests queued.
+
+ {Maximum wait time} - Highest wait time recorded in any time slice.
+
+ {Max running instances} - Peak number of ArcSOC instances that were
+ active simultaneously during the window. Equivalent to the "Instance
+ Used" metric in ArcGIS Monitor dashboards.
+
+ Service data is piggybacked to the host representing each federated
+ ArcGIS Server. The piggyback host name is the server name as returned
+ by the Portal federation API, lowercased. Usage statistics are
+ collected in a separate agent section with a configurable cache interval
+ (default: 300 seconds) to avoid creating usage reports on every check
+ cycle.
+
+ This check requires ArcGIS Enterprise 11.1 or later. The
+ ServiceRunningInstancesMax metric requires ArcGIS Enterprise 11.1+
+ to be combined with request metrics in a single usage report.
+
+item:
+ The full path of the ArcGIS service including folder and service type,
+ matching the format returned by the ArcGIS Server services report API.
+ Root-level services appear as {ServiceName.ServiceType}, for example
+ {Utilities.PrintingTools.GPServer}. Services in folders appear as
+ {FolderName/ServiceName.ServiceType}, for example
+ {BaseMap/Address.MapServer}.
+
+discovery:
+ One service is created for each published ArcGIS service discovered
+ via the ArcGIS Server REST Admin API during agent collection. System
+ services under the System and Utilities folders are included. Services
+ can be filtered at collection time using the server include/exclude
+ regex options in the special agent rule.

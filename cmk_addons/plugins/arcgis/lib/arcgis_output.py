@@ -14,6 +14,7 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     PortalLicenseSummary,
     SectionArcGISLogSettings,
     SectionArcGISServerMachines,
+    SectionArcGISServiceStats,
     SectionArcGISServices,
     SectionPortalFederation,
     SectionPortalHealth,
@@ -21,7 +22,16 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     SectionPortalLicense,
     SectionServerLicense,
     ServerLicenseEntry,
+    ServiceStatsEntry,
 )
+
+
+WINDOW_SECONDS: dict[str, int] = {
+    "LAST_HOUR": 3_600,
+    "LAST_DAY": 86_400,
+    "LAST_WEEK": 604_800,
+    "LAST_MONTH": 2_592_000,
+}
 
 
 def _json_payload(payload: Any) -> str:
@@ -288,3 +298,104 @@ def log_settings_section(settings_response: dict) -> SectionArcGISLogSettings:
         max_log_file_age=int(max_age) if max_age is not None else None,
         log_dir=str(log_dir) if log_dir else None,
     )
+
+# Service statistics aggregation
+ 
+def _normalize_resource_uri(uri: str) -> str:
+    """Strip the leading 'services/' prefix so URIs align with arcgis_services items.
+ 
+    Examples:
+        services/MyService.MapServer  →  MyService.MapServer
+        services/Folder/Svc.GPServer  →  Folder/Svc.GPServer
+    """
+    prefix = "services/"
+    if uri.startswith(prefix):
+        return uri[len(prefix):]
+    return uri
+ 
+ 
+def _sum_data(data: list) -> int:
+    """Sum all non-null values; null means 'no requests logged', treated as 0."""
+    return sum(int(v) for v in data if v is not None)
+ 
+ 
+def _mean_data(data: list) -> float | None:
+    """Mean of non-null values; returns None when every slice is null."""
+    values = [float(v) for v in data if v is not None]
+    if not values:
+        return None
+    return sum(values) / len(values)
+ 
+ 
+def _max_data(data: list) -> float | None:
+    """Max of non-null values; returns None when every slice is null."""
+    values = [float(v) for v in data if v is not None]
+    if not values:
+        return None
+    return max(values)
+ 
+ 
+def arcgis_service_stats_section(
+    report_data: dict,
+    since: str,
+) -> SectionArcGISServiceStats:
+    """Aggregate a usage-report API response into per-service stats entries.
+ 
+    The usage report returns time-sliced data for each (service, metric) pair.
+    We collapse the time slices into single scalar values:
+      - Counts (RequestCount, RequestsFailed, RequestsTimedOut) → sum
+      - Averages (AvgResponseTime, AvgWaitTime)                 → mean of non-null slices
+      - Maxima  (MaxResponseTime, MaxWaitTime)                  → max of non-null slices
+      - ServiceRunningInstancesMax                              → max of non-null slices
+    """
+    window_seconds = WINDOW_SECONDS.get(since, WINDOW_SECONDS["LAST_DAY"])
+ 
+    report = report_data.get("report", {})
+ 
+    # report-data is a list of query results; each query result is a list of
+    # {resourceURI, metric-type, data} objects.  We use a single query so
+    # report-data[0] has everything, but we flatten all queries defensively.
+    all_entries: list[dict] = []
+    for query_result in report.get("report-data", []):
+        if isinstance(query_result, list):
+            all_entries.extend(query_result)
+ 
+    # Group metric data by normalized service name.
+    by_service: dict[str, dict[str, list]] = {}
+    for entry in all_entries:
+        uri = entry.get("resourceURI", "")
+        metric = entry.get("metric-type", "")
+        data = entry.get("data", [])
+        service_name = _normalize_resource_uri(uri)
+        by_service.setdefault(service_name, {})[metric] = data
+ 
+    services: list[ServiceStatsEntry] = []
+    for service_name, metrics in by_service.items():
+        request_count = _sum_data(metrics.get("RequestCount", []))
+        failed_requests = _sum_data(metrics.get("RequestsFailed", []))
+        timed_out_requests = _sum_data(metrics.get("RequestsTimedOut", []))
+ 
+        avg_response_time_ms = _mean_data(metrics.get("RequestAvgResponseTime", []))
+        max_response_time_ms = _max_data(metrics.get("RequestMaxResponseTime", []))
+        avg_wait_time_ms = _mean_data(metrics.get("RequestAvgWaitTime", []))
+        max_wait_time_ms = _max_data(metrics.get("RequestMaxWaitTime", []))
+ 
+        max_instances_raw = _max_data(metrics.get("ServiceRunningInstancesMax", []))
+        max_running_instances = int(max_instances_raw) if max_instances_raw is not None else None
+ 
+        services.append(
+            ServiceStatsEntry(
+                service_name=service_name,
+                window_seconds=window_seconds,
+                request_count=request_count,
+                failed_requests=failed_requests,
+                timed_out_requests=timed_out_requests,
+                avg_response_time_ms=avg_response_time_ms,
+                max_response_time_ms=max_response_time_ms,
+                avg_wait_time_ms=avg_wait_time_ms,
+                max_wait_time_ms=max_wait_time_ms,
+                max_running_instances=max_running_instances,
+            )
+        )
+ 
+    return SectionArcGISServiceStats(services=services)

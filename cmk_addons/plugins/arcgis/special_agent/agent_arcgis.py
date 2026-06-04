@@ -15,27 +15,32 @@ from cmk_addons.plugins.arcgis.lib.arcgis_normalize import (
     normalize_registered_datastore_validation,
 )
 from cmk_addons.plugins.arcgis.lib.arcgis_output import (
-    output_json_piggyback,
-    output_json_section,
-    portal_license_section,
-    server_license_section,
-    portal_health_section,
-    portal_indexer_section,
-    portal_federation_section,
+    arcgis_service_stats_section,
     arcgis_services_section,
     arcgis_server_machines_section,
     log_settings_section,
+    output_json_piggyback,
+    output_json_section,
+    portal_federation_section,
+    portal_health_section,
+    portal_indexer_section,
+    portal_license_section,
+    server_license_section,
 )
 from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
-    RegisteredDatastoreValidation,
-    SectionRegisteredDatastoreValidation,
     ManagedDatastoreValidation,
+    RegisteredDatastoreValidation,
     SectionManagedDatastoreValidation,
+    SectionRegisteredDatastoreValidation,
 )
 
+# ---------------------------------------------------------------------------
 # Logging config
+# ---------------------------------------------------------------------------
+
 AGENT = "arcgis"
 LOGGER = logging.getLogger(f"agent_{AGENT}")
+
 
 def configure_logging(args: argparse.Namespace) -> None:
     if args.debug or args.verbose >= 2:
@@ -51,6 +56,7 @@ def configure_logging(args: argparse.Namespace) -> None:
         stream=sys.stderr,
         force=True,
     )
+
 
 def log_collection_error(
     component: str,
@@ -70,7 +76,10 @@ def log_collection_error(
         exc_info=True,
     )
 
+
+# ---------------------------------------------------------------------------
 # Argument parsing
+# ---------------------------------------------------------------------------
 
 def non_negative_int(value: str) -> int:
     try:
@@ -83,6 +92,7 @@ def non_negative_int(value: str) -> int:
 
     return parsed
 
+
 def parse_arguments(argv):
     parser = argparse.ArgumentParser(description="CheckMK ArcGIS Enterprise Special Agent")
     parser.add_argument("--username", required=True, help="ArcGIS admin username")
@@ -94,49 +104,61 @@ def parse_arguments(argv):
         "--portal-federation-cache",
         type=non_negative_int,
         default=300,
-        help="Cache interval in seconds for Portal federation validation. Use 0 to disable section caching.",
+        help="Cache interval in seconds for Portal federation validation. Use 0 to disable.",
     )
     parser.add_argument(
         "--portal-license-cache",
         type=non_negative_int,
         default=3600,
-        help="Cache interval in seconds for Portal license data. Use 0 to disable section caching.",
+        help="Cache interval in seconds for Portal license data. Use 0 to disable.",
     )
     parser.add_argument(
         "--portal-log-settings-cache",
         type=non_negative_int,
         default=3600,
-        help="Cache interval in seconds for Portal log settings. Use 0 to disable section caching.",
+        help="Cache interval in seconds for Portal log settings. Use 0 to disable.",
     )
     parser.add_argument(
         "--server-machines-cache",
         type=non_negative_int,
         default=300,
-        help="Cache interval in seconds for ArcGIS Server machine states. Use 0 to disable section caching.",
+        help="Cache interval in seconds for ArcGIS Server machine states. Use 0 to disable.",
     )
     parser.add_argument(
         "--registered-datastores-cache",
         type=non_negative_int,
         default=900,
-        help="Cache interval in seconds for registered datastore validation. Use 0 to disable section caching.",
+        help="Cache interval in seconds for registered datastore validation. Use 0 to disable.",
     )
     parser.add_argument(
         "--managed-datastores-cache",
         type=non_negative_int,
         default=900,
-        help="Cache interval in seconds for managed datastore validation. Use 0 to disable section caching.",
+        help="Cache interval in seconds for managed datastore validation. Use 0 to disable.",
     )
     parser.add_argument(
         "--server-license-cache",
         type=non_negative_int,
         default=3600,
-        help="Cache interval in seconds for ArcGIS Server license data. Use 0 to disable section caching.",
+        help="Cache interval in seconds for ArcGIS Server license data. Use 0 to disable.",
     )
     parser.add_argument(
         "--server-log-settings-cache",
         type=non_negative_int,
         default=3600,
-        help="Cache interval in seconds for ArcGIS Server log settings. Use 0 to disable section caching.",
+        help="Cache interval in seconds for ArcGIS Server log settings. Use 0 to disable.",
+    )
+    parser.add_argument(
+        "--service-stats-cache",
+        type=non_negative_int,
+        default=300,
+        help="Cache interval in seconds for service usage statistics. Use 0 to disable.",
+    )
+    parser.add_argument(
+        "--service-stats-since",
+        choices=["LAST_HOUR", "LAST_DAY", "LAST_WEEK", "LAST_MONTH"],
+        default="LAST_HOUR",
+        help="Time window for service usage statistics (default: LAST_HOUR).",
     )
     parser.add_argument(
         "-v",
@@ -162,6 +184,8 @@ def parse_arguments(argv):
     parser.add_argument("--no-managed-datastores", action="store_true")
     parser.add_argument("--no-server-license", action="store_true")
     parser.add_argument("--no-server-log-settings", action="store_true")
+    parser.add_argument("--no-service-stats", action="store_true")
+
     parser.add_argument(
         "--server-include-regex",
         action="append",
@@ -210,10 +234,7 @@ def federated_server_is_included(
     text = _server_filter_text(server)
 
     if exclude_patterns and _matches_any_regex(text, exclude_patterns):
-        LOGGER.info(
-            "Excluding federated server by exclude regex: %s",
-            text,
-        )
+        LOGGER.info("Excluding federated server by exclude regex: %s", text)
         return False
 
     if include_patterns and not _matches_any_regex(text, include_patterns):
@@ -234,11 +255,7 @@ def filter_federated_servers(
     return [
         server
         for server in servers
-        if federated_server_is_included(
-            server,
-            include_patterns,
-            exclude_patterns,
-        )
+        if federated_server_is_included(server, include_patterns, exclude_patterns)
     ]
 
 
@@ -246,6 +263,7 @@ def cache_interval(value: int) -> int | None:
     if value <= 0:
         return None
     return value
+
 
 def server_collection_enabled(args: argparse.Namespace) -> bool:
     return any(
@@ -256,6 +274,7 @@ def server_collection_enabled(args: argparse.Namespace) -> bool:
             not args.no_managed_datastores,
             not args.no_server_license,
             not args.no_server_log_settings,
+            not args.no_service_stats,
         ]
     )
 
@@ -267,6 +286,7 @@ def log_disabled_collection(component: str, target: str) -> None:
         target,
     )
 
+
 def hostname_matches_machine(hostname: str, machine_name: str) -> bool:
     """Check if hostname refers to this portal machine.
     Matches exact or FQDN prefix (e.g. 'gisserver' matches 'gisserver.acme.com').
@@ -274,6 +294,7 @@ def hostname_matches_machine(hostname: str, machine_name: str) -> bool:
     hostname_lower = hostname.lower()
     machine_lower = machine_name.lower()
     return hostname_lower == machine_lower or machine_lower.startswith(hostname_lower + ".")
+
 
 def machine_piggyback_host(hostname: str, machine_name: str, all_machine_names: list[str]) -> str:
     """Determine piggyback header for a portal machine.
@@ -285,17 +306,38 @@ def machine_piggyback_host(hostname: str, machine_name: str, all_machine_names: 
     hostname_matches_any = any(hostname_matches_machine(hostname, m) for m in all_machine_names)
     if not hostname_matches_any and len(all_machine_names) == 1:
         return ""
-    hostname = machine_name.split('.')[0]
+    hostname = machine_name.split(".")[0]
     return hostname.lower()
+
 
 def piggyback_host_from_machine_name(machine_name: str) -> str:
     """Convert ArcGIS machine/FQDN names to Checkmk host names.
 
     Example:
-    GIS-SERVER-01.EXAMPLE.ORG -> gis-server-01
-    gis-server-01 -> gis-server-01
+        DS1.ACME.ORG -> ds1
+        ds1 -> ds1
     """
     return machine_name.split(".", 1)[0].lower()
+
+
+def _service_to_resource_uri(service: dict) -> str:
+    """Build a usage-report resourceURI from a service dict.
+
+    The resourceURI format expected by the usage report API is:
+        services/<ServiceName>.<Type>            (root folder)
+        services/<FolderName>/<ServiceName>.<Type>  (sub-folder)
+    """
+    folder = (service.get("folderName") or "").strip("/")
+    name = service["serviceName"]
+    svc_type = service["type"]
+    if folder:
+        return f"services/{folder}/{name}.{svc_type}"
+    return f"services/{name}.{svc_type}"
+
+
+# ---------------------------------------------------------------------------
+# Collection functions - Portal
+# ---------------------------------------------------------------------------
 
 def collect_portal(
     args,
@@ -430,8 +472,18 @@ def collect_portal(
         collection.error("federated_servers", "portal", e)
         log_collection_error("federated_servers", "portal", e)
         return []
-    
-def collect_server_machines(server_name, server_client: ServerClient, collection: CollectionStatus, cache_seconds: int) -> None:
+
+
+# ---------------------------------------------------------------------------
+# Collection functions - Server
+# ---------------------------------------------------------------------------
+
+def collect_server_machines(
+    server_name: str,
+    server_client: ServerClient,
+    collection: CollectionStatus,
+    cache_seconds: int,
+) -> None:
     LOGGER.info("Collecting server machines for %s", server_name)
     machines = server_client.get_machines()
     LOGGER.debug("Server machines for %s: %s", server_name, machines)
@@ -441,11 +493,20 @@ def collect_server_machines(server_name, server_client: ServerClient, collection
     for machine in machines:
         machine_name = machine.get("machineName") or machine.get("name")
         if not machine_name:
-            LOGGER.debug("Skipping machine with missing name in server %s: %s", server_name, machine)
+            LOGGER.debug(
+                "Skipping machine with missing name in server %s: %s",
+                server_name,
+                machine,
+            )
             continue
 
         status = server_client.get_machine_status(machine_name)
-        LOGGER.debug("Machine status for %s in server %s: %s", machine_name, server_name, status)
+        LOGGER.debug(
+            "Machine status for %s in server %s: %s",
+            machine_name,
+            server_name,
+            status,
+        )
 
         machine_statuses.append(
             {
@@ -461,8 +522,13 @@ def collect_server_machines(server_name, server_client: ServerClient, collection
         arcgis_server_machines_section(machine_statuses),
         cache_interval=cache_interval(cache_seconds),
     )
-    
-def collect_server_services(server_name, server_client: ServerClient, collection: CollectionStatus) -> None:
+
+
+def collect_server_services(
+    server_name: str,
+    server_client: ServerClient,
+    collection: CollectionStatus,
+) -> None:
     LOGGER.info("Collecting server services for %s", server_name)
     services_data = server_client.get_services()
     LOGGER.debug("Server services for %s: %s", server_name, services_data)
@@ -474,7 +540,11 @@ def collect_server_services(server_name, server_client: ServerClient, collection
         }
         for svc in services_data
     ]
-    LOGGER.info("Getting service statuses for %d services in server %s", len(service_list), server_name)
+    LOGGER.info(
+        "Getting service statuses for %d services in server %s",
+        len(service_list),
+        server_name,
+    )
     statuses = server_client.get_services_report(service_list)
     LOGGER.debug("Service statuses for %s: %s", server_name, statuses)
 
@@ -483,6 +553,54 @@ def collect_server_services(server_name, server_client: ServerClient, collection
         "arcgis_services",
         arcgis_services_section(statuses),
     )
+
+
+def collect_service_stats(
+    server_name: str,
+    server_client: ServerClient,
+    collection: CollectionStatus,
+    since: str,
+    cache_seconds: int,
+) -> None:
+    """Collect per-service usage statistics via a transient usage report.
+
+    Fetches the full service list independently so this collection works
+    correctly even when server-services collection is disabled.
+    """
+    LOGGER.info("Collecting service stats for %s (since=%s)", server_name, since)
+
+    services_data = server_client.get_services()
+    LOGGER.debug(
+        "Services for stats collection on %s: %d services",
+        server_name,
+        len(services_data),
+    )
+
+    resource_uris = [
+        _service_to_resource_uri(svc)
+        for svc in services_data
+        if svc.get("serviceName") and svc.get("type")
+    ]
+
+    if not resource_uris:
+        LOGGER.info("No services found for stats collection on %s", server_name)
+        return
+
+    LOGGER.debug(
+        "Querying usage report for %d services on %s",
+        len(resource_uris),
+        server_name,
+    )
+    report_data = server_client.get_service_stats(resource_uris, since)
+    LOGGER.debug("Usage report data for %s: %s", server_name, report_data)
+
+    output_json_piggyback(
+        server_name,
+        "arcgis_service_stats",
+        arcgis_service_stats_section(report_data, since),
+        cache_interval=cache_interval(cache_seconds),
+    )
+
 
 def collect_registered_datastores(
     server_name: str,
@@ -497,15 +615,29 @@ def collect_registered_datastores(
     LOGGER.debug("Registered datastores for %s: %s", server_name, registered_datastores)
 
     for item in registered_datastores:
-        LOGGER.debug("Validating registered datastore %s for %s", item.get("path", ""), server_name)
+        LOGGER.debug(
+            "Validating registered datastore %s for %s",
+            item.get("path", ""),
+            server_name,
+        )
         validation = server_client.validate_registered_datastore(item)
-        LOGGER.debug("Validation result for %s in %s: %s", item.get("path", ""), server_name, validation)
+        LOGGER.debug(
+            "Validation result for %s in %s: %s",
+            item.get("path", ""),
+            server_name,
+            validation,
+        )
         health_items = normalize_registered_datastore_validation(
             item.get("path", ""),
             item.get("type", ""),
             validation,
         )
-        LOGGER.debug("Normalized validation items for %s in %s: %s", item.get("path", ""), server_name, health_items)
+        LOGGER.debug(
+            "Normalized validation items for %s in %s: %s",
+            item.get("path", ""),
+            server_name,
+            health_items,
+        )
 
         for health_item in health_items:
             validations.append(
@@ -524,6 +656,7 @@ def collect_registered_datastores(
         SectionRegisteredDatastoreValidation(validations=validations),
         cache_interval=cache_interval(cache_seconds),
     )
+
 
 def collect_managed_datastores(
     args,
@@ -545,11 +678,26 @@ def collect_managed_datastores(
 
         for machine in item.get("info", {}).get("machines", []):
             machine_name = machine.get("name", "unknown")
-            LOGGER.debug("Validating managed datastore %s on machine %s", item_path, machine_name)
+            LOGGER.debug(
+                "Validating managed datastore %s on machine %s",
+                item_path,
+                machine_name,
+            )
             validation = server_client.validate_managed_datastore(item_path, machine)
-            LOGGER.debug("Validation result for managed datastore %s on machine %s: %s", item_path, machine_name, validation)
+            LOGGER.debug(
+                "Validation result for managed datastore %s on machine %s: %s",
+                item_path,
+                machine_name,
+                validation,
+            )
             classification, message = classify_managed_datastore_response(validation)
-            LOGGER.debug("Classification for managed datastore %s on machine %s: %s, message: %s", item_path, machine_name, classification, message)
+            LOGGER.debug(
+                "Classification for managed datastore %s on machine %s: %s, message: %s",
+                item_path,
+                machine_name,
+                classification,
+                message,
+            )
 
             if classification == "unsupported":
                 unsupported_count += 1
@@ -566,11 +714,15 @@ def collect_managed_datastores(
             )
 
     for machine_name, validations in machine_validations.items():
-        piggyback_host = piggyback_host_from_machine_name(machine_name)
-        LOGGER.debug("Outputting managed datastore validation for machine %s with piggyback host '%s'", machine_name, piggyback_host)
+        pb_host = piggyback_host_from_machine_name(machine_name)
+        LOGGER.debug(
+            "Outputting managed datastore validation for machine %s with piggyback host '%s'",
+            machine_name,
+            pb_host,
+        )
 
         output_json_piggyback(
-            piggyback_host,
+            pb_host,
             "arcgis_managed_datastore_validation",
             SectionManagedDatastoreValidation(validations=validations),
             cache_interval=cache_interval(cache_seconds),
@@ -578,8 +730,13 @@ def collect_managed_datastores(
 
     return validated_count, unsupported_count
 
-def collect_server_license(server_name, server_client: ServerClient, collection: CollectionStatus, cache_seconds: int) -> None:
-    # Check license status
+
+def collect_server_license(
+    server_name: str,
+    server_client: ServerClient,
+    collection: CollectionStatus,
+    cache_seconds: int,
+) -> None:
     LOGGER.info("Collecting server license for %s", server_name)
     license_data = server_client.get_license()
     LOGGER.debug("Server license data for %s: %s", server_name, license_data)
@@ -589,6 +746,7 @@ def collect_server_license(server_name, server_client: ServerClient, collection:
         server_license_section(license_data),
         cache_interval=cache_interval(cache_seconds),
     )
+
 
 def collect_server_log_settings(
     server_name: str,
@@ -604,6 +762,7 @@ def collect_server_log_settings(
         cache_interval=cache_interval(cache_seconds),
     )
 
+
 def collect_server(
     args,
     server: dict,
@@ -617,7 +776,12 @@ def collect_server(
         log_disabled_collection("server_machines", server_name)
     else:
         try:
-            collect_server_machines(server_name, server_client, collection, args.server_machines_cache)
+            collect_server_machines(
+                server_name,
+                server_client,
+                collection,
+                args.server_machines_cache,
+            )
             collection.ok("server_machines", server_name)
         except Exception as e:
             collection.error("server_machines", server_name, e)
@@ -633,11 +797,32 @@ def collect_server(
             collection.error("server_services", server_name, e)
             log_collection_error("server_services", server_name, e)
 
+    if args.no_service_stats:
+        log_disabled_collection("service_stats", server_name)
+    else:
+        try:
+            collect_service_stats(
+                server_name,
+                server_client,
+                collection,
+                args.service_stats_since,
+                args.service_stats_cache,
+            )
+            collection.ok("service_stats", server_name)
+        except Exception as e:
+            collection.error("service_stats", server_name, e)
+            log_collection_error("service_stats", server_name, e)
+
     if args.no_registered_datastores:
         log_disabled_collection("registered_datastores", server_name)
     else:
         try:
-            collect_registered_datastores(server_name, server_client, collection, args.registered_datastores_cache)
+            collect_registered_datastores(
+                server_name,
+                server_client,
+                collection,
+                args.registered_datastores_cache,
+            )
             collection.ok("registered_datastores", server_name)
         except Exception as e:
             collection.error("registered_datastores", server_name, e)
@@ -667,7 +852,12 @@ def collect_server(
         log_disabled_collection("server_license", server_name)
     else:
         try:
-            collect_server_license(server_name, server_client, collection, args.server_license_cache)
+            collect_server_license(
+                server_name,
+                server_client,
+                collection,
+                args.server_license_cache,
+            )
             collection.ok("server_license", server_name)
         except Exception as e:
             collection.error("server_license", server_name, e)
@@ -677,22 +867,31 @@ def collect_server(
         log_disabled_collection("server_log_settings", server_name)
     else:
         try:
-            collect_server_log_settings(server_name, server_client, collection, args.server_log_settings_cache)
+            collect_server_log_settings(
+                server_name,
+                server_client,
+                collection,
+                args.server_log_settings_cache,
+            )
             collection.ok("server_log_settings", server_name)
         except Exception as e:
             collection.error("server_log_settings", server_name, e)
             log_collection_error("server_log_settings", server_name, e)
 
+
 def agent_arcgis(args):
     collection = CollectionStatus()
     verify_ssl = not args.no_verify_ssl
 
-    
     if not verify_ssl:
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         LOGGER.warning("SSL certificate verification is disabled")
 
-    LOGGER.info("Starting collection for ArcGIS Enterprise at %s with user %s", args.portal_url, args.username)
+    LOGGER.info(
+        "Starting collection for ArcGIS Enterprise at %s with user %s",
+        args.portal_url,
+        args.username,
+    )
 
     token_provider = ArcGISTokenProvider(
         portal_url=args.portal_url,
@@ -724,7 +923,7 @@ def agent_arcgis(args):
             if not server_url:
                 collection.warn("server_discovery", server_name, "missing server URL")
                 continue
-            
+
             server_client = ServerClient(
                 server_url=server_url,
                 token_provider=token_provider,
@@ -732,12 +931,13 @@ def agent_arcgis(args):
             )
             LOGGER.info("Collecting data for server %s", server_name)
             collect_server(args, server, server_client, collection)
-        
+
         output_json_section("arcgis_collection_status", collection.section())
         return 0
 
     output_json_section("arcgis_collection_status", collection.section())
     return 0
+
 
 def main() -> int:
     args = parse_arguments(sys.argv[1:])
@@ -752,6 +952,7 @@ def main() -> int:
     )
 
     return agent_arcgis(args)
+
 
 if __name__ == "__main__":
     sys.exit(main())

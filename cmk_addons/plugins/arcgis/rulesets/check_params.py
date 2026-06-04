@@ -15,6 +15,7 @@ from cmk.rulesets.v1.rule_specs import (
     Topic,
 )
 
+
 def _state_choice(title: str, default: str) -> SingleChoice:
     return SingleChoice(
         title=Title(title),
@@ -27,11 +28,15 @@ def _state_choice(title: str, default: str) -> SingleChoice:
         prefill=DefaultValue(default),
     )
 
+
+# ---------------------------------------------------------------------------
 # ArcGIS services
+# ---------------------------------------------------------------------------
 
 def _parameter_form_arcgis_services() -> Dictionary:
     return Dictionary(
         elements={
+            # ---- State handling ----
             "started_not_started_state": DictElement(
                 parameter_form=_state_choice(
                     "State when configured STARTED but realtime is not STARTED",
@@ -74,18 +79,89 @@ def _parameter_form_arcgis_services() -> Dictionary:
                 ),
                 required=True,
             ),
+            # ---- Usage statistics thresholds ----
+            # These only apply when service stats collection is enabled and the
+            # arcgis_service_stats section is present for the service.
+            "failure_rate_warn": DictElement(
+                parameter_form=Float(
+                    title=Title("Warning threshold for request failure rate"),
+                    unit_symbol="%",
+                    prefill=DefaultValue(5.0),
+                ),
+                required=True,
+            ),
+            "failure_rate_crit": DictElement(
+                parameter_form=Float(
+                    title=Title("Critical threshold for request failure rate"),
+                    unit_symbol="%",
+                    prefill=DefaultValue(20.0),
+                ),
+                required=True,
+            ),
+            "timeout_rate_warn": DictElement(
+                parameter_form=Float(
+                    title=Title("Warning threshold for request timeout rate"),
+                    unit_symbol="%",
+                    prefill=DefaultValue(5.0),
+                ),
+                required=True,
+            ),
+            "timeout_rate_crit": DictElement(
+                parameter_form=Float(
+                    title=Title("Critical threshold for request timeout rate"),
+                    unit_symbol="%",
+                    prefill=DefaultValue(20.0),
+                ),
+                required=True,
+            ),
+            "avg_response_time_warn": DictElement(
+                parameter_form=Integer(
+                    title=Title("Warning threshold for average response time"),
+                    unit_symbol="ms",
+                    prefill=DefaultValue(5000),
+                ),
+                required=False,
+            ),
+            "avg_response_time_crit": DictElement(
+                parameter_form=Integer(
+                    title=Title("Critical threshold for average response time"),
+                    unit_symbol="ms",
+                    prefill=DefaultValue(30000),
+                ),
+                required=False,
+            ),
+            "max_response_time_warn": DictElement(
+                parameter_form=Integer(
+                    title=Title("Warning threshold for maximum response time"),
+                    unit_symbol="ms",
+                    prefill=DefaultValue(30000),
+                ),
+                required=False,
+            ),
+            "max_response_time_crit": DictElement(
+                parameter_form=Integer(
+                    title=Title("Critical threshold for maximum response time"),
+                    unit_symbol="ms",
+                    prefill=DefaultValue(60000),
+                ),
+                required=False,
+            ),
         }
     )
 
+
 rule_spec_arcgis_services = CheckParameters(
     name="arcgis_services",
-    title=Title("ArcGIS service state handling"),
+    title=Title("ArcGIS service state and usage statistics"),
     topic=Topic.APPLICATIONS,
     parameter_form=_parameter_form_arcgis_services,
     condition=HostAndItemCondition(item_title=Title("ArcGIS service")),
 )
 
+
+# ---------------------------------------------------------------------------
 # Log settings
+# ---------------------------------------------------------------------------
 
 def _parameter_form_arcgis_log_settings() -> Dictionary:
     return Dictionary(
@@ -158,6 +234,7 @@ def _parameter_form_arcgis_log_settings() -> Dictionary:
         }
     )
 
+
 rule_spec_arcgis_log_settings = CheckParameters(
     name="arcgis_log_settings",
     title=Title("ArcGIS log settings policy"),
@@ -166,7 +243,10 @@ rule_spec_arcgis_log_settings = CheckParameters(
     condition=HostCondition(),
 )
 
+
+# ---------------------------------------------------------------------------
 # Server machines
+# ---------------------------------------------------------------------------
 
 def _parameter_form_arcgis_server_machines() -> Dictionary:
     return Dictionary(
@@ -209,6 +289,7 @@ def _parameter_form_arcgis_server_machines() -> Dictionary:
         }
     )
 
+
 rule_spec_arcgis_server_machines = CheckParameters(
     name="arcgis_server_machines",
     title=Title("ArcGIS Server machine state handling"),
@@ -219,37 +300,28 @@ rule_spec_arcgis_server_machines = CheckParameters(
     ),
 )
 
+
+# ---------------------------------------------------------------------------
 # Datastores (Managed and Registered)
+# ---------------------------------------------------------------------------
 
 def _parameter_form_arcgis_datastore_validation() -> Dictionary:
     return Dictionary(
         elements={
             "success_state": DictElement(
-                parameter_form=_state_choice(
-                    "State for successful validation",
-                    "ok",
-                ),
+                parameter_form=_state_choice("State for successful validation", "ok"),
                 required=True,
             ),
             "warning_state": DictElement(
-                parameter_form=_state_choice(
-                    "State for validation warnings",
-                    "warn",
-                ),
+                parameter_form=_state_choice("State for validation warnings", "warn"),
                 required=True,
             ),
             "failure_state": DictElement(
-                parameter_form=_state_choice(
-                    "State for validation failures",
-                    "crit",
-                ),
+                parameter_form=_state_choice("State for validation failures", "crit"),
                 required=True,
             ),
             "error_state": DictElement(
-                parameter_form=_state_choice(
-                    "State for validation errors",
-                    "crit",
-                ),
+                parameter_form=_state_choice("State for validation errors", "crit"),
                 required=True,
             ),
             "unsupported_state": DictElement(
@@ -260,14 +332,12 @@ def _parameter_form_arcgis_datastore_validation() -> Dictionary:
                 required=True,
             ),
             "unknown_state": DictElement(
-                parameter_form=_state_choice(
-                    "State for unknown validation results",
-                    "unknown",
-                ),
+                parameter_form=_state_choice("State for unknown validation results", "unknown"),
                 required=True,
             ),
         }
     )
+
 
 rule_spec_arcgis_datastore_validation = CheckParameters(
     name="arcgis_datastore_validation",
@@ -279,7 +349,10 @@ rule_spec_arcgis_datastore_validation = CheckParameters(
     ),
 )
 
+
+# ---------------------------------------------------------------------------
 # ArcGIS Portal License
+# ---------------------------------------------------------------------------
 
 def _parameter_form_arcgis_portal_license() -> Dictionary:
     return Dictionary(
@@ -324,10 +397,7 @@ def _parameter_form_arcgis_portal_license() -> Dictionary:
                 required=True,
             ),
             "expired_state": DictElement(
-                parameter_form=_state_choice(
-                    "State when license is expired",
-                    "crit",
-                ),
+                parameter_form=_state_choice("State when license is expired", "crit"),
                 required=True,
             ),
         }
@@ -344,7 +414,10 @@ rule_spec_arcgis_portal_license = CheckParameters(
     ),
 )
 
+
+# ---------------------------------------------------------------------------
 # Server License
+# ---------------------------------------------------------------------------
 
 def _parameter_form_arcgis_server_license() -> Dictionary:
     return Dictionary(
@@ -366,10 +439,7 @@ def _parameter_form_arcgis_server_license() -> Dictionary:
                 required=True,
             ),
             "expired_state": DictElement(
-                parameter_form=_state_choice(
-                    "State when license is expired",
-                    "crit",
-                ),
+                parameter_form=_state_choice("State when license is expired", "crit"),
                 required=True,
             ),
             "invalid_feature_state": DictElement(
@@ -380,10 +450,7 @@ def _parameter_form_arcgis_server_license() -> Dictionary:
                 required=True,
             ),
             "unknown_expiration_state": DictElement(
-                parameter_form=_state_choice(
-                    "State when expiration is unknown",
-                    "unknown",
-                ),
+                parameter_form=_state_choice("State when expiration is unknown", "unknown"),
                 required=True,
             ),
             "missing_license_state": DictElement(
@@ -407,7 +474,10 @@ rule_spec_arcgis_server_license = CheckParameters(
     ),
 )
 
+
+# ---------------------------------------------------------------------------
 # Portal Index
+# ---------------------------------------------------------------------------
 
 def _parameter_form_arcgis_portal_indexer() -> Dictionary:
     return Dictionary(
@@ -440,7 +510,10 @@ rule_spec_arcgis_portal_indexer = CheckParameters(
     ),
 )
 
+
+# ---------------------------------------------------------------------------
 # Portal Index Sync
+# ---------------------------------------------------------------------------
 
 def _parameter_form_arcgis_portal_indexer_sync() -> Dictionary:
     return Dictionary(
@@ -471,7 +544,10 @@ rule_spec_arcgis_portal_indexer_sync = CheckParameters(
     condition=HostCondition(),
 )
 
+
+# ---------------------------------------------------------------------------
 # Federated Server Status
+# ---------------------------------------------------------------------------
 
 def _parameter_form_arcgis_portal_federation_servers() -> Dictionary:
     return Dictionary(
@@ -518,6 +594,7 @@ rule_spec_arcgis_portal_federation_servers = CheckParameters(
     ),
 )
 
+
 def _parameter_form_arcgis_portal_federation_status() -> Dictionary:
     return Dictionary(
         elements={
@@ -554,7 +631,10 @@ rule_spec_arcgis_portal_federation_status = CheckParameters(
     condition=HostCondition(),
 )
 
+
+# ---------------------------------------------------------------------------
 # Collection status
+# ---------------------------------------------------------------------------
 
 def _parameter_form_arcgis_collection_status() -> Dictionary:
     return Dictionary(
