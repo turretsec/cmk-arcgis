@@ -34,16 +34,23 @@ DEFAULT_SERVICE_PARAMS: Mapping[str, Any] = {
     "transitional_state": "warn",
     "failed_state": "crit",
     "unknown_state": "unknown",
+
     # --- Usage statistics thresholds ---
     "failure_rate_warn": 5.0,
     "failure_rate_crit": 20.0,
+    "failure_rate_min_requests": 20,
     "timeout_rate_warn": 5.0,
     "timeout_rate_crit": 20.0,
+    "timeout_rate_min_requests": 20,
 }
 
 
 def _param_str(params: Mapping[str, Any], key: str) -> str:
     return param_str(params, DEFAULT_SERVICE_PARAMS, key)
+
+
+def _int_param(params: Mapping[str, Any], key: str) -> int:
+    return int(params.get(key, DEFAULT_SERVICE_PARAMS[key]))
 
 
 def _rate_levels(
@@ -228,10 +235,17 @@ def check_arcgis_services(
     avg_resp_levels = _time_levels(params, "avg_response_time_warn", "avg_response_time_crit")
     max_resp_levels = _time_levels(params, "max_response_time_warn", "max_response_time_crit")
 
-    stats_states: list[State] = [
-        _state_for_value(failure_rate, failure_warn, failure_crit),
-        _state_for_value(timeout_rate, timeout_warn, timeout_crit),
-    ]
+    failure_min_requests = _int_param(params, "failure_rate_min_requests")
+    timeout_min_requests = _int_param(params, "timeout_rate_min_requests")
+
+    stats_states: list[State] = []
+
+    if stats.request_count >= failure_min_requests:
+        stats_states.append(_state_for_value(failure_rate, failure_warn, failure_crit))
+
+    if stats.request_count >= timeout_min_requests:
+        stats_states.append(_state_for_value(timeout_rate, timeout_warn, timeout_crit))
+
     if stats.avg_response_time_ms is not None and avg_resp_levels is not None:
         stats_states.append(
             _state_for_value(stats.avg_response_time_ms, avg_resp_levels[0], avg_resp_levels[1])
@@ -249,6 +263,15 @@ def check_arcgis_services(
         f"{stats.failed_requests} failed ({failure_rate:.2f}%)",
         f"{stats.timed_out_requests} timed out ({timeout_rate:.2f}%)",
     ]
+    if stats.request_count < failure_min_requests:
+        stats_summary_parts.append(
+            f"failure threshold ignored below {failure_min_requests} requests"
+        )
+
+    if stats.request_count < timeout_min_requests:
+        stats_summary_parts.append(
+            f"timeout threshold ignored below {timeout_min_requests} requests"
+        )
     if stats.avg_response_time_ms is not None:
         stats_summary_parts.append(f"avg resp {stats.avg_response_time_ms:.0f} ms")
 

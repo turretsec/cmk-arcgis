@@ -305,8 +305,8 @@ def _normalize_resource_uri(uri: str) -> str:
     """Strip the leading 'services/' prefix so URIs align with arcgis_services items.
  
     Examples:
-        services/MyService.MapServer  →  MyService.MapServer
-        services/Folder/Svc.GPServer  →  Folder/Svc.GPServer
+        services/MyService.MapServer  ->  MyService.MapServer
+        services/Folder/Svc.GPServer  ->  Folder/Svc.GPServer
     """
     prefix = "services/"
     if uri.startswith(prefix):
@@ -314,26 +314,49 @@ def _normalize_resource_uri(uri: str) -> str:
     return uri
  
  
+def _has_any_data(data: list) -> bool:
+    """Return True when the metric has at least one non-null time slice."""
+    return any(value is not None for value in data)
+
+
 def _sum_data(data: list) -> int:
-    """Sum all non-null values; null means 'no requests logged', treated as 0."""
-    return sum(int(v) for v in data if v is not None)
- 
- 
-def _mean_data(data: list) -> float | None:
-    """Mean of non-null values; returns None when every slice is null."""
-    values = [float(v) for v in data if v is not None]
-    if not values:
+    """Sum all non-null values."""
+    return sum(int(value) for value in data if value is not None)
+
+
+def _weighted_mean_data(values: list, weights: list) -> float | None:
+    """Return request-count-weighted mean across time slices.
+
+    ArcGIS usage reports return averages per time slice. A plain mean of those
+    slices gives tiny quiet slices the same weight as busy slices, so use
+    RequestCount as the weight.
+    """
+    weighted_total = 0.0
+    total_weight = 0.0
+
+    for value, weight in zip(values, weights):
+        if value is None or weight is None:
+            continue
+
+        weight_float = float(weight)
+        if weight_float <= 0:
+            continue
+
+        weighted_total += float(value) * weight_float
+        total_weight += weight_float
+
+    if total_weight <= 0:
         return None
-    return sum(values) / len(values)
- 
- 
+
+    return weighted_total / total_weight
+
+
 def _max_data(data: list) -> float | None:
     """Max of non-null values; returns None when every slice is null."""
-    values = [float(v) for v in data if v is not None]
+    values = [float(value) for value in data if value is not None]
     if not values:
         return None
     return max(values)
- 
  
 def arcgis_service_stats_section(
     report_data: dict,
@@ -343,10 +366,10 @@ def arcgis_service_stats_section(
  
     The usage report returns time-sliced data for each (service, metric) pair.
     We collapse the time slices into single scalar values:
-      - Counts (RequestCount, RequestsFailed, RequestsTimedOut) → sum
-      - Averages (AvgResponseTime, AvgWaitTime)                 → mean of non-null slices
-      - Maxima  (MaxResponseTime, MaxWaitTime)                  → max of non-null slices
-      - ServiceRunningInstancesMax                              → max of non-null slices
+      - Counts (RequestCount, RequestsFailed, RequestsTimedOut) -> sum
+      - Averages (AvgResponseTime, AvgWaitTime)                 -> request-count-weighted mean
+      - Maxima  (MaxResponseTime, MaxWaitTime)                  -> max of non-null slices
+      - ServiceRunningInstancesMax                              -> max of non-null slices
     """
     window_seconds = WINDOW_SECONDS.get(since, WINDOW_SECONDS["LAST_DAY"])
  
@@ -371,13 +394,25 @@ def arcgis_service_stats_section(
  
     services: list[ServiceStatsEntry] = []
     for service_name, metrics in by_service.items():
-        request_count = _sum_data(metrics.get("RequestCount", []))
+        request_count_data = metrics.get("RequestCount", [])
+        if not _has_any_data(request_count_data):
+            # If RequestCount is entirely null/missing, do not invent zero-traffic stats.
+            # The check will fall back to state-only output for this service.
+            continue
+
+        request_count = _sum_data(request_count_data)
         failed_requests = _sum_data(metrics.get("RequestsFailed", []))
         timed_out_requests = _sum_data(metrics.get("RequestsTimedOut", []))
- 
-        avg_response_time_ms = _mean_data(metrics.get("RequestAvgResponseTime", []))
+
+        avg_response_time_ms = _weighted_mean_data(
+            metrics.get("RequestAvgResponseTime", []),
+            request_count_data,
+        )
         max_response_time_ms = _max_data(metrics.get("RequestMaxResponseTime", []))
-        avg_wait_time_ms = _mean_data(metrics.get("RequestAvgWaitTime", []))
+        avg_wait_time_ms = _weighted_mean_data(
+            metrics.get("RequestAvgWaitTime", []),
+            request_count_data,
+        )
         max_wait_time_ms = _max_data(metrics.get("RequestMaxWaitTime", []))
  
         max_instances_raw = _max_data(metrics.get("ServiceRunningInstancesMax", []))

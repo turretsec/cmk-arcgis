@@ -362,8 +362,8 @@ class ServerClient:
         try:
             return self.get_usage_report_data(report_name)
         finally:
-            # Best-effort cleanup: a missed delete leaves a harmless temp report
-            # that the server will eventually expire.
+            # Best-effort cleanup: if delete fails, the temporary report may remain
+            # in ArcGIS Server Admin and can be removed manually.
             try:
                 self.delete_usage_report(report_name)
             except Exception:

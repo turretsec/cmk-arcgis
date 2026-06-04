@@ -98,6 +98,13 @@ def _parameter_form_arcgis_services() -> Dictionary:
                 ),
                 required=True,
             ),
+            "failure_rate_min_requests": DictElement(
+                parameter_form=Integer(
+                    title=Title("Minimum requests before evaluating failure rate"),
+                    prefill=DefaultValue(20),
+                ),
+                required=True,
+            ),
             "timeout_rate_warn": DictElement(
                 parameter_form=Float(
                     title=Title("Warning threshold for request timeout rate"),
@@ -111,6 +118,13 @@ def _parameter_form_arcgis_services() -> Dictionary:
                     title=Title("Critical threshold for request timeout rate"),
                     unit_symbol="%",
                     prefill=DefaultValue(20.0),
+                ),
+                required=True,
+            ),
+            "timeout_rate_min_requests": DictElement(
+                parameter_form=Integer(
+                    title=Title("Minimum requests before evaluating timeout rate"),
+                    prefill=DefaultValue(20),
                 ),
                 required=True,
             ),
