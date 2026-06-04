@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 import time
 from typing import Any
@@ -470,10 +471,52 @@ def web_adaptors_section(adaptors_data: dict) -> SectionArcGISWebAdaptors:
 
     return SectionArcGISWebAdaptors(web_adaptors=web_adaptors)
 
+#
+# Logs
+#
+
+def _log_code(msg: dict) -> int:
+    try:
+        return int(msg.get("code", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _log_filter_text(msg: dict) -> str:
+    return " ".join(
+        str(msg.get(key, "") or "")
+        for key in (
+            "type",
+            "message",
+            "source",
+            "machine",
+            "user",
+            "code",
+            "requestID",
+            "requestId",
+        )
+    )
+
+
+def _log_message_is_ignored(
+    msg: dict,
+    ignore_patterns: list[str] | None = None,
+    ignore_codes: list[int] | None = None,
+) -> bool:
+    ignore_patterns = ignore_patterns or []
+    ignore_codes_set = set(ignore_codes or [])
+
+    if _log_code(msg) in ignore_codes_set:
+        return True
+
+    text = _log_filter_text(msg)
+    return any(re.search(pattern, text, re.IGNORECASE) for pattern in ignore_patterns)
 
 def server_logs_section(
     log_data: dict,
     window_minutes: int = 15,
+    ignore_patterns: list[str] | None = None,
+    ignore_codes: list[int] | None = None,
 ) -> SectionArcGISServerLogs:
     """Aggregate a log query response into a section for the check plugin.
 
@@ -490,9 +533,14 @@ def server_logs_section(
 
     severe_count = 0
     warning_count = 0
+    ignored_count = 0
     recent_severe: list[ServerLogEntry] = []
 
     for msg in messages:
+        if _log_message_is_ignored(msg, ignore_patterns, ignore_codes):
+            ignored_count += 1
+            continue
+
         level = str(msg.get("type", "")).strip().upper()
 
         if level == "SEVERE":
@@ -514,6 +562,7 @@ def server_logs_section(
     return SectionArcGISServerLogs(
         severe_count=severe_count,
         warning_count=warning_count,
+        ignored_count=ignored_count,
         has_more=has_more,
         window_minutes=window_minutes,
         recent_severe=recent_severe,
@@ -522,6 +571,8 @@ def server_logs_section(
 def portal_logs_section(
     log_data: dict,
     window_minutes: int = 15,
+    ignore_patterns: list[str] | None = None,
+    ignore_codes: list[int] | None = None,
 ) -> SectionArcGISPortalLogs:
     """Aggregate a Portal log query response into a Checkmk section."""
     messages = log_data.get("logMessages", [])
@@ -529,9 +580,14 @@ def portal_logs_section(
 
     severe_count = 0
     warning_count = 0
+    ignored_count = 0
     recent_severe: list[PortalLogEntry] = []
 
     for msg in messages:
+        if _log_message_is_ignored(msg, ignore_patterns, ignore_codes):
+            ignored_count += 1
+            continue
+
         level = str(msg.get("type", "")).strip().upper()
 
         if level == "SEVERE":
@@ -559,6 +615,7 @@ def portal_logs_section(
     return SectionArcGISPortalLogs(
         severe_count=severe_count,
         warning_count=warning_count,
+        ignored_count=ignored_count,
         has_more=has_more,
         window_minutes=window_minutes,
         recent_severe=recent_severe,

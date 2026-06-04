@@ -245,6 +245,32 @@ def parse_arguments(argv):
             "Should be at least 2x the check interval to avoid gaps between collections."
         ),
     )
+    parser.add_argument(
+        "--portal-log-ignore-regex",
+        action="append",
+        default=[],
+        help="Ignore Portal log entries whose text matches this regex. Can be specified multiple times.",
+    )
+    parser.add_argument(
+        "--portal-log-ignore-code",
+        type=non_negative_int,
+        action="append",
+        default=[],
+        help="Ignore Portal log entries with this ArcGIS log code. Can be specified multiple times.",
+    )
+    parser.add_argument(
+        "--server-log-ignore-regex",
+        action="append",
+        default=[],
+        help="Ignore ArcGIS Server log entries whose text matches this regex. Can be specified multiple times.",
+    )
+    parser.add_argument(
+        "--server-log-ignore-code",
+        type=non_negative_int,
+        action="append",
+        default=[],
+        help="Ignore ArcGIS Server log entries with this ArcGIS log code. Can be specified multiple times.",
+    )
     parser.add_argument("hostname", help="Target hostname")
     return parser.parse_args(argv)
 
@@ -508,7 +534,12 @@ def collect_portal(
             LOGGER.debug("Portal log data: %s", log_data)
             output_json_section(
                 "arcgis_portal_logs",
-                portal_logs_section(log_data, args.portal_logs_window),
+                portal_logs_section(
+                    log_data,
+                    args.portal_logs_window,
+                    ignore_patterns=args.portal_log_ignore_regex,
+                    ignore_codes=args.portal_log_ignore_code,
+                ),
                 cache_interval=cache_interval(args.portal_logs_cache),
             )
             collection.ok("portal_logs", "portal")
@@ -864,6 +895,8 @@ def collect_server_logs(
     server_client: ServerClient,
     collection: CollectionStatus,
     window_minutes: int,
+    ignore_patterns: list[str],
+    ignore_codes: list[int],
     cache_seconds: int,
 ) -> None:
     LOGGER.info(
@@ -876,7 +909,12 @@ def collect_server_logs(
     output_json_piggyback(
         server_name,
         "arcgis_server_logs",
-        server_logs_section(log_data, window_minutes),
+        server_logs_section(
+            log_data,
+            window_minutes,
+            ignore_patterns,
+            ignore_codes,
+        ),
         cache_interval=cache_interval(cache_seconds),
     )
 
@@ -1031,6 +1069,8 @@ def collect_server(
                 collection,
                 args.server_logs_window,
                 args.server_logs_cache,
+                args.server_log_ignore_regex,
+                args.server_log_ignore_code,
             )
             collection.ok("server_logs", server_name)
         except Exception as e:

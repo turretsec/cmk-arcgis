@@ -166,6 +166,7 @@ class ServerLogEntry(BaseModel):
 class SectionArcGISServerLogs(BaseModel):
     severe_count: int = 0
     warning_count: int = 0
+    ignored_count: int = 0
     has_more: bool = False
     window_minutes: int = 15
     recent_severe: list[ServerLogEntry] = Field(default_factory=list)
@@ -185,6 +186,7 @@ class PortalLogEntry(BaseModel):
 class SectionArcGISPortalLogs(BaseModel):
     severe_count: int = 0
     warning_count: int = 0
+    ignored_count: int = 0
     has_more: bool = False
     window_minutes: int = 15
     recent_severe: list[PortalLogEntry] = Field(default_factory=list)

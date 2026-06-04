@@ -49,6 +49,11 @@ class CollectionParams(BaseModel):
     portal_logs: bool = True
 
 
+class LogFilterParams(BaseModel):
+    ignore_patterns: list[str] = Field(default_factory=list)
+    ignore_codes: list[int] = Field(default_factory=list)
+
+
 class Params(BaseModel):
     username: str
     password: Secret
@@ -61,6 +66,8 @@ class Params(BaseModel):
     cache_intervals: CacheIntervalParams = Field(default_factory=CacheIntervalParams)
     server_filter: ServerFilterParams = Field(default_factory=ServerFilterParams)
     portal_logs_window: int = 15
+    portal_log_filter: LogFilterParams = Field(default_factory=LogFilterParams)
+    server_log_filter: LogFilterParams = Field(default_factory=LogFilterParams)
 
 
 def _append_server_filter_args(
@@ -72,6 +79,18 @@ def _append_server_filter_args(
 
     for pattern in server_filter.exclude_patterns:
         args.extend(["--server-exclude-regex", pattern])
+
+
+def _append_log_filter_args(
+    args: list[str | Secret],
+    prefix: str,
+    log_filter: LogFilterParams,
+) -> None:
+    for pattern in log_filter.ignore_patterns:
+        args.extend([f"--{prefix}-log-ignore-regex", pattern])
+
+    for code in log_filter.ignore_codes:
+        args.extend([f"--{prefix}-log-ignore-code", str(code)])
 
 
 def _append_cache_interval_args(
@@ -163,6 +182,8 @@ def _generate_arcgis_command(
     _append_disabled_collection_flags(args, params.collections)
     _append_cache_interval_args(args, params.cache_intervals)
     _append_server_filter_args(args, params.server_filter)
+    _append_log_filter_args(args, "portal", params.portal_log_filter)
+    _append_log_filter_args(args, "server", params.server_log_filter)
 
     args.append(host_config.name)
 

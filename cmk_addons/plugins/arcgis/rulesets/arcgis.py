@@ -50,6 +50,40 @@ def _server_filter_form() -> Dictionary:
     )
 
 
+def _log_filter_form(title: str) -> Dictionary:
+    return Dictionary(
+        title=Title(title),
+        help_text=Help(
+            "Ignore known noisy ArcGIS log entries before counting WARNING and SEVERE messages. "
+            "Regex patterns are matched against the log level, message, source, machine, user, "
+            "request ID, and code."
+        ),
+        elements={
+            "ignore_patterns": DictElement(
+                parameter_form=List(
+                    title=Title("Ignore log messages matching regex"),
+                    element_template=String(
+                        title=Title("Regular expression"),
+                        field_size=FieldSize.LARGE,
+                    ),
+                    add_element_label=Label("Add ignore pattern"),
+                ),
+                required=False,
+            ),
+            "ignore_codes": DictElement(
+                parameter_form=List(
+                    title=Title("Ignore ArcGIS log codes"),
+                    element_template=Integer(
+                        title=Title("Log code"),
+                    ),
+                    add_element_label=Label("Add ignored code"),
+                ),
+                required=False,
+            ),
+        },
+    )
+
+
 def _cache_interval(title: str, default: int) -> Integer:
     return Integer(
         title=Title(title),
@@ -344,6 +378,14 @@ def _parameter_form() -> Dictionary:
             ),
             "server_filter": DictElement(
                 parameter_form=_server_filter_form(),
+                required=False,
+            ),
+            "portal_log_filter": DictElement(
+                parameter_form=_log_filter_form("Portal log filters"),
+                required=False,
+            ),
+            "server_log_filter": DictElement(
+                parameter_form=_log_filter_form("ArcGIS Server log filters"),
                 required=False,
             ),
         }

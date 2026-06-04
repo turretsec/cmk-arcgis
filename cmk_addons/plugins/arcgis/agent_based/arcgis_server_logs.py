@@ -95,7 +95,11 @@ def check_arcgis_server_logs(
         f"{count_prefix}{section.severe_count} severe",
         f"{count_prefix}{section.warning_count} warnings",
     ]
-    summary = f"{', '.join(summary_parts)} (last {window} min)"
+
+    if section.ignored_count:
+        summary_parts.append(f"{section.ignored_count} ignored")
+
+    summary = f"{', '.join(summary_parts)} (last {section.window_minutes} min)"
 
     # Details: surface recent SEVERE messages so operators can triage
     # without opening ArcGIS Server Manager.
@@ -122,6 +126,14 @@ def check_arcgis_server_logs(
             if entry.code:
                 source_info += f" (code {entry.code})"
             details_lines.append(f"  {ts}{source_info}: {entry.message}")
+
+    if section.ignored_count:
+        details_lines.extend(
+            [
+                "",
+                f"Ignored {section.ignored_count} log entries due to configured filters.",
+            ]
+        )        
 
     details = "\n".join(details_lines)
 
