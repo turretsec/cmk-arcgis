@@ -1064,13 +1064,13 @@ def collect_server(
     else:
         try:
             collect_server_logs(
-                server_name,
-                server_client,
-                collection,
-                args.server_logs_window,
-                args.server_logs_cache,
-                args.server_log_ignore_regex,
-                args.server_log_ignore_code,
+                server_name=server_name,
+                server_client=server_client,
+                collection=collection,
+                window_minutes=args.server_logs_window,
+                ignore_patterns=args.server_log_ignore_regex,
+                ignore_codes=args.server_log_ignore_code,
+                cache_seconds=args.server_logs_cache,
             )
             collection.ok("server_logs", server_name)
         except Exception as e:
