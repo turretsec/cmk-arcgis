@@ -112,6 +112,22 @@ metric_arcgis_max_running_instances = Metric(
     unit=Unit(DecimalNotation("")),
     color=Color.PURPLE,
 )
+
+# Portal Log Counts
+
+metric_arcgis_portal_severe_log_count = Metric(
+    name="arcgis_portal_severe_log_count",
+    title=Title("Portal severe log entries"),
+    unit=Unit(DecimalNotation("")),
+    color=Color.RED,
+)
+
+metric_arcgis_portal_warning_log_count = Metric(
+    name="arcgis_portal_warning_log_count",
+    title=Title("Portal warning log entries"),
+    unit=Unit(DecimalNotation("")),
+    color=Color.ORANGE,
+)
  
  
 # ---------------------------------------------------------------------------
@@ -361,4 +377,22 @@ graph_arcgis_server_log_counts = Graph(
         CriticalOf("arcgis_severe_log_count"),
     ],
     optional=["arcgis_warning_log_count"],
+)
+
+
+# ---------------------------------------------------------------------------
+# Portal log metrics
+# ---------------------------------------------------------------------------
+
+graph_arcgis_portal_log_counts = Graph(
+    name="arcgis_portal_log_counts",
+    title=Title("Portal Log Messages"),
+    compound_lines=[
+        "arcgis_portal_severe_log_count",
+        "arcgis_portal_warning_log_count",
+    ],
+    simple_lines=[
+        WarningOf("arcgis_portal_severe_log_count"),
+        CriticalOf("arcgis_portal_severe_log_count"),
+    ],
 )

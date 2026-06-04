@@ -28,6 +28,8 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     ServerLogEntry,
     ServiceStatsEntry,
     WebAdaptorEntry,
+    PortalLogEntry,
+    SectionArcGISPortalLogs,
 )
 
 # ---------------------------------------------------------------------------
@@ -510,6 +512,51 @@ def server_logs_section(
             warning_count += 1
 
     return SectionArcGISServerLogs(
+        severe_count=severe_count,
+        warning_count=warning_count,
+        has_more=has_more,
+        window_minutes=window_minutes,
+        recent_severe=recent_severe,
+    )
+
+def portal_logs_section(
+    log_data: dict,
+    window_minutes: int = 15,
+) -> SectionArcGISPortalLogs:
+    """Aggregate a Portal log query response into a Checkmk section."""
+    messages = log_data.get("logMessages", [])
+    has_more = bool(log_data.get("hasMore", False))
+
+    severe_count = 0
+    warning_count = 0
+    recent_severe: list[PortalLogEntry] = []
+
+    for msg in messages:
+        level = str(msg.get("type", "")).strip().upper()
+
+        if level == "SEVERE":
+            severe_count += 1
+            if len(recent_severe) < 5:
+                recent_severe.append(
+                    PortalLogEntry(
+                        level=level,
+                        message=str(msg.get("message", "")),
+                        time_ms=int(msg.get("time", 0) or 0),
+                        source=str(msg.get("source", "") or ""),
+                        machine=str(msg.get("machine", "") or ""),
+                        user=str(msg.get("user", "") or ""),
+                        code=int(msg.get("code", 0) or 0),
+                        request_id=str(
+                            msg.get("requestID")
+                            or msg.get("requestId")
+                            or ""
+                        ),
+                    )
+                )
+        elif level == "WARNING":
+            warning_count += 1
+
+    return SectionArcGISPortalLogs(
         severe_count=severe_count,
         warning_count=warning_count,
         has_more=has_more,

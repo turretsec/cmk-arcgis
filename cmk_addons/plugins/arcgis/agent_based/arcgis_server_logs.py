@@ -76,7 +76,7 @@ def check_arcgis_server_logs(
     final_state = worst_state(severe_state, warning_state)
 
     window = section.window_minutes
-    more_suffix = " (more not shown)" if section.has_more else ""
+    count_prefix = "at least " if section.has_more else ""
 
     # Metrics - yielded before Result so they're always stored.
     yield Metric(
@@ -92,15 +92,26 @@ def check_arcgis_server_logs(
 
     # Summary line
     summary_parts = [
-        f"{section.severe_count} severe",
-        f"{section.warning_count} warnings",
+        f"{count_prefix}{section.severe_count} severe",
+        f"{count_prefix}{section.warning_count} warnings",
     ]
-    summary = f"{', '.join(summary_parts)} (last {window} min){more_suffix}"
+    summary = f"{', '.join(summary_parts)} (last {window} min)"
 
     # Details: surface recent SEVERE messages so operators can triage
     # without opening ArcGIS Server Manager.
+    details_lines = [summary]
+
+    if section.has_more:
+        details_lines.extend(
+            [
+                "",
+                "Log query was truncated before the full time window was read.",
+                "Counts should be treated as lower bounds.",
+            ]
+        )
+
     if section.recent_severe:
-        details_lines = [summary, "", "Recent SEVERE errors:"]
+        details_lines.extend(["", "Recent SEVERE errors:"])
         for entry in section.recent_severe:
             ts = _format_timestamp(entry.time_ms)
             source_info = ""
@@ -111,9 +122,8 @@ def check_arcgis_server_logs(
             if entry.code:
                 source_info += f" (code {entry.code})"
             details_lines.append(f"  {ts}{source_info}: {entry.message}")
-        details = "\n".join(details_lines)
-    else:
-        details = summary
+
+    details = "\n".join(details_lines)
 
     yield Result(state=final_state, summary=summary, details=details)
 

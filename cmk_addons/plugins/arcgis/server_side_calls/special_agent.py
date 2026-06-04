@@ -27,6 +27,7 @@ class CacheIntervalParams(BaseModel):
     service_stats: int = Field(default=300, ge=0)
     web_adaptors: int = Field(default=300, ge=0)
     server_logs: int = Field(default=300, ge=0)
+    portal_logs: int = Field(default=300, ge=0)
 
 
 class CollectionParams(BaseModel):
@@ -45,6 +46,7 @@ class CollectionParams(BaseModel):
     managed_datastores: bool = True
     server_license: bool = True
     server_log_settings: bool = True
+    portal_logs: bool = True
 
 
 class Params(BaseModel):
@@ -58,6 +60,7 @@ class Params(BaseModel):
     collections: CollectionParams = Field(default_factory=CollectionParams)
     cache_intervals: CacheIntervalParams = Field(default_factory=CacheIntervalParams)
     server_filter: ServerFilterParams = Field(default_factory=ServerFilterParams)
+    portal_logs_window: int = 15
 
 
 def _append_server_filter_args(
@@ -99,6 +102,8 @@ def _append_cache_interval_args(
             str(cache_intervals.web_adaptors),
             "--server-logs-cache",
             str(cache_intervals.server_logs),
+            "--portal-logs-cache",
+            str(cache_intervals.portal_logs),
         ]
     )
 
@@ -123,6 +128,7 @@ def _append_disabled_collection_flags(
         (collections.managed_datastores, "--no-managed-datastores"),
         (collections.server_license, "--no-server-license"),
         (collections.server_log_settings, "--no-server-log-settings"),
+        (collections.portal_logs, "--no-portal-logs"),
     ]
 
     for enabled, flag in disabled_flags:
@@ -147,6 +153,8 @@ def _generate_arcgis_command(
         params.service_stats_since,
         "--server-logs-window",
         str(params.server_logs_window),
+        "--portal-logs-window",
+        str(params.portal_logs_window),
     ]
 
     if not params.verify_ssl:

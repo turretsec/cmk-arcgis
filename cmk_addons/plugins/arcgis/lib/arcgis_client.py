@@ -144,6 +144,74 @@ class PortalClient:
 
     def get_log_settings(self) -> dict:
         return self.get_json("/portaladmin/logs/settings")
+    
+    def get_log_entries(
+        self,
+        window_minutes: int = 15,
+        page_size: int = 1000,
+        max_pages: int = 10,
+    ) -> dict:
+        """Query Portal logs for WARNING and SEVERE messages.
+
+        WARNING includes SEVERE. Federated server logs are intentionally excluded
+        because ArcGIS Server logs are collected separately.
+        """
+        now_ms = int(time.time() * 1000)
+        older_bound_ms = now_ms - (window_minutes * 60 * 1000)
+
+        current_start_ms = now_ms
+        all_messages: list[dict] = []
+        has_more = False
+
+        for _page in range(max_pages):
+            response = self.get_json(
+                "/portaladmin/logs/query",
+                {
+                    "startTime": str(current_start_ms),
+                    "endTime": str(older_bound_ms),
+                    "level": "WARNING",
+                    "filterType": "json",
+                    "filter": json.dumps(
+                        {
+                            "codes": [],
+                            "users": [],
+                            "requestIds": [],
+                            "source": [],
+                        }
+                    ),
+                    "pageSize": str(page_size),
+                    # Empty means exclude federated server logs. We collect those
+                    # through each federated server already.
+                    "federatedServers": "",
+                },
+            )
+
+            all_messages.extend(response.get("logMessages", []))
+            has_more = bool(response.get("hasMore", False))
+
+            if not has_more:
+                break
+
+            next_start = response.get("endTime")
+            if next_start is None:
+                break
+
+            try:
+                next_start_ms = int(next_start)
+            except (TypeError, ValueError):
+                break
+
+            if next_start_ms <= older_bound_ms or next_start_ms >= current_start_ms:
+                break
+
+            current_start_ms = next_start_ms
+
+        return {
+            "hasMore": has_more,
+            "startTime": now_ms,
+            "endTime": older_bound_ms,
+            "logMessages": all_messages,
+        }
 
 
 class ServerClient:
@@ -313,33 +381,70 @@ class ServerClient:
     def get_log_entries(
         self,
         window_minutes: int = 15,
-        page_size: int = 100,
+        page_size: int = 1000,
+        max_pages: int = 10,
     ) -> dict:
         """Query ArcGIS Server logs for WARNING and SEVERE messages.
 
-        Querying level=WARNING returns both WARNING and SEVERE records since
-        WARNING is the minimum severity filter - SEVERE is included because it
-        is higher on the severity scale.
+        Querying level=WARNING returns WARNING and SEVERE records because
+        WARNING is the minimum severity filter.
 
-        IMPORTANT: The ArcGIS logs API names ``startTime`` and ``endTime``
-        from the perspective of the log file, not the query range.
-        ``startTime`` is the NEWER bound (the most recent time to include)
-        and ``endTime`` is the OLDER bound (the furthest point back to search).
-        This is the opposite of what you might expect.
+        The logs query API pages backwards in time. When a response has
+        hasMore=true, the response endTime is used as the next request's
+        startTime.
         """
         now_ms = int(time.time() * 1000)
         older_bound_ms = now_ms - (window_minutes * 60 * 1000)
 
-        return self.post_json(
-            "/admin/logs/query",
-            {
-                "startTime": str(now_ms),
-                "endTime": str(older_bound_ms),
-                "level": "WARNING",
-                "filter": json.dumps({"server": "*", "machines": ["*"]}),
-                "pageSize": str(page_size),
-            },
-        )
+        current_start_ms = now_ms
+        all_messages: list[dict] = []
+        has_more = False
+
+        for _page in range(max_pages):
+            response = self.post_json(
+                "/admin/logs/query",
+                {
+                    "startTime": str(current_start_ms),
+                    "endTime": str(older_bound_ms),
+                    "level": "WARNING",
+                    "filterType": "json",
+                    "filter": json.dumps(
+                        {
+                            "services": ["*"],
+                            "machines": ["*"],
+                        }
+                    ),
+                    "pageSize": str(page_size),
+                },
+            )
+
+            all_messages.extend(response.get("logMessages", []))
+            has_more = bool(response.get("hasMore", False))
+
+            if not has_more:
+                break
+
+            next_start = response.get("endTime")
+            if next_start is None:
+                break
+
+            try:
+                next_start_ms = int(next_start)
+            except (TypeError, ValueError):
+                break
+
+            # Defensive guard against bad/looping pagination responses.
+            if next_start_ms <= older_bound_ms or next_start_ms >= current_start_ms:
+                break
+
+            current_start_ms = next_start_ms
+
+        return {
+            "hasMore": has_more,
+            "startTime": now_ms,
+            "endTime": older_bound_ms,
+            "logMessages": all_messages,
+        }
 
     def get_service_stats(
         self,

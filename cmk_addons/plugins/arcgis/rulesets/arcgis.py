@@ -118,6 +118,10 @@ def _cache_intervals_form() -> Dictionary:
                 parameter_form=_cache_interval("Server log query", 300),
                 required=False,
             ),
+            "portal_logs": DictElement(
+                parameter_form=_cache_interval("Portal logs", 300),
+                required=False,
+            ),
         },
     )
 
@@ -158,6 +162,13 @@ def _collections_form() -> Dictionary:
                 parameter_form=_collection_toggle(
                     "Portal log settings",
                     "Collect Portal log settings",
+                ),
+                required=False,
+            ),
+            "portal_logs": DictElement(
+                parameter_form=_collection_toggle(
+                    "Portal logs",
+                    "Collect Portal WARNING and SEVERE log counts",
                 ),
                 required=False,
             ),
@@ -305,6 +316,18 @@ def _parameter_form() -> Dictionary:
                         "How far back to query for SEVERE and WARNING log entries. "
                         "Set to at least 2× the check interval to avoid gaps between "
                         "collections. Default is 15 minutes."
+                    ),
+                    unit_symbol="minutes",
+                    prefill=DefaultValue(15),
+                ),
+                required=False,
+            ),
+            "portal_logs_window": DictElement(
+                parameter_form=Integer(
+                    title=Title("Portal logs query window"),
+                    help_text=Help(
+                        "Time window in minutes used when querying Portal logs. "
+                        "Use at least twice the normal check interval to avoid gaps."
                     ),
                     unit_symbol="minutes",
                     prefill=DefaultValue(15),

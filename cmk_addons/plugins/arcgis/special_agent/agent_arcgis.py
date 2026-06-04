@@ -29,6 +29,7 @@ from cmk_addons.plugins.arcgis.lib.arcgis_output import (
     server_logs_section,
     server_mode_section,
     web_adaptors_section,
+    portal_logs_section,
 )
 from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     ManagedDatastoreValidation,
@@ -177,6 +178,7 @@ def parse_arguments(argv):
     parser.add_argument("--no-portal-federation", action="store_true")
     parser.add_argument("--no-portal-license", action="store_true")
     parser.add_argument("--no-portal-log-settings", action="store_true")
+    parser.add_argument("--no-portal-logs", action="store_true")
 
     parser.add_argument("--no-server-machines", action="store_true")
     parser.add_argument("--no-server-services", action="store_true")
@@ -226,6 +228,21 @@ def parse_arguments(argv):
         help=(
             "Do not collect federated servers whose name, URL, or admin URL matches "
             "this regular expression. Can be specified multiple times. Excludes win over includes."
+        ),
+    )
+    parser.add_argument(
+        "--portal-logs-cache",
+        type=non_negative_int,
+        default=300,
+        help="Cache interval in seconds for Portal log queries. Use 0 to disable.",
+    )
+    parser.add_argument(
+        "--portal-logs-window",
+        type=non_negative_int,
+        default=15,
+        help=(
+            "Time window in minutes for Portal log queries (default: 15). "
+            "Should be at least 2x the check interval to avoid gaps between collections."
         ),
     )
     parser.add_argument("hostname", help="Target hostname")
@@ -478,6 +495,26 @@ def collect_portal(
         except Exception as e:
             collection.error("portal_log_settings", "portal", e)
             log_collection_error("portal_log_settings", "portal", e)
+
+    if args.no_portal_logs:
+        log_disabled_collection("portal_logs", "portal")
+    else:
+        try:
+            LOGGER.info(
+                "Collecting Portal logs (window=%d min)",
+                args.portal_logs_window,
+            )
+            log_data = portal_client.get_log_entries(args.portal_logs_window)
+            LOGGER.debug("Portal log data: %s", log_data)
+            output_json_section(
+                "arcgis_portal_logs",
+                portal_logs_section(log_data, args.portal_logs_window),
+                cache_interval=cache_interval(args.portal_logs_cache),
+            )
+            collection.ok("portal_logs", "portal")
+        except Exception as e:
+            collection.error("portal_logs", "portal", e)
+            log_collection_error("portal_logs", "portal", e)
 
     if not server_collection_enabled(args):
         log_disabled_collection("federated_servers", "portal")

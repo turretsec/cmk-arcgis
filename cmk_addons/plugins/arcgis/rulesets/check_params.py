@@ -248,7 +248,6 @@ def _parameter_form_arcgis_log_settings() -> Dictionary:
         }
     )
 
-
 rule_spec_arcgis_log_settings = CheckParameters(
     name="arcgis_log_settings",
     title=Title("ArcGIS log settings policy"),
@@ -825,5 +824,70 @@ rule_spec_arcgis_server_logs = CheckParameters(
     title=Title("ArcGIS Server log error thresholds"),
     topic=Topic.APPLICATIONS,
     parameter_form=_parameter_form_arcgis_server_logs,
+    condition=HostCondition(),
+)
+
+
+# ---------------------------------------------------------------------------
+# Portal logs
+# ---------------------------------------------------------------------------
+
+
+def _parameter_form_arcgis_portal_logs() -> Dictionary:
+    return Dictionary(
+        elements={
+            "severe_warn": DictElement(
+                parameter_form=Integer(
+                    title=Title("Warning threshold for SEVERE error count"),
+                    help_text=Help(
+                        "Trigger a WARNING when this many SEVERE Portal log entries "
+                        "appear in the query window. Set to 0 to disable."
+                    ),
+                    prefill=DefaultValue(1),
+                ),
+                required=True,
+            ),
+            "severe_crit": DictElement(
+                parameter_form=Integer(
+                    title=Title("Critical threshold for SEVERE error count"),
+                    help_text=Help(
+                        "Trigger a CRITICAL when this many SEVERE Portal log entries "
+                        "appear in the query window. Set to 0 to disable."
+                    ),
+                    prefill=DefaultValue(10),
+                ),
+                required=True,
+            ),
+            "warning_warn": DictElement(
+                parameter_form=Integer(
+                    title=Title("Warning threshold for WARNING message count"),
+                    help_text=Help(
+                        "Trigger a WARNING when this many WARNING Portal log entries "
+                        "appear in the query window. Set to 0 to disable."
+                    ),
+                    prefill=DefaultValue(0),
+                ),
+                required=True,
+            ),
+            "warning_crit": DictElement(
+                parameter_form=Integer(
+                    title=Title("Critical threshold for WARNING message count"),
+                    help_text=Help(
+                        "Trigger a CRITICAL when this many WARNING Portal log entries "
+                        "appear in the query window. Set to 0 to disable."
+                    ),
+                    prefill=DefaultValue(0),
+                ),
+                required=True,
+            ),
+        }
+    )
+
+
+rule_spec_arcgis_portal_logs = CheckParameters(
+    name="arcgis_portal_logs",
+    title=Title("ArcGIS Portal log error thresholds"),
+    topic=Topic.APPLICATIONS,
+    parameter_form=_parameter_form_arcgis_portal_logs,
     condition=HostCondition(),
 )

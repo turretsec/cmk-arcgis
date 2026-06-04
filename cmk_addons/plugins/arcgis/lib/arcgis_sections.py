@@ -169,3 +169,22 @@ class SectionArcGISServerLogs(BaseModel):
     has_more: bool = False
     window_minutes: int = 15
     recent_severe: list[ServerLogEntry] = Field(default_factory=list)
+
+
+class PortalLogEntry(BaseModel):
+    level: str
+    message: str
+    time_ms: int
+    source: str = ""
+    machine: str = ""
+    user: str = ""
+    code: int = 0
+    request_id: str = ""
+
+
+class SectionArcGISPortalLogs(BaseModel):
+    severe_count: int = 0
+    warning_count: int = 0
+    has_more: bool = False
+    window_minutes: int = 15
+    recent_severe: list[PortalLogEntry] = Field(default_factory=list)
