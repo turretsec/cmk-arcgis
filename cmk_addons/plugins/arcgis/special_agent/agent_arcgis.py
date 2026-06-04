@@ -1117,14 +1117,28 @@ def agent_arcgis(args):
             return 1
 
         for server in federated_servers:
-            server_url = server.get("url")
-            server_name = str(server.get("name") or server_url or "unknown_server")
-            if not server_url:
-                collection.warn("server_discovery", server_name, "missing server URL")
+            service_url = server.get("url")
+            admin_url = server.get("adminUrl") or server.get("admin_url") or service_url
+            server_name = str(server.get("name") or admin_url or service_url or "unknown_server")
+
+            if not admin_url:
+                collection.warn(
+                    "server_discovery",
+                    server_name,
+                    "missing federated server admin URL",
+                )
                 continue
 
+            if admin_url != service_url:
+                LOGGER.debug(
+                    "Using admin URL for server %s: %s (service URL: %s)",
+                    server_name,
+                    admin_url,
+                    service_url,
+                )
+
             server_client = ServerClient(
-                server_url=server_url,
+                server_url=admin_url,
                 token_provider=token_provider,
                 verify_ssl=verify_ssl,
             )
