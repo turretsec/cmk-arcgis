@@ -14,8 +14,10 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     PortalLicenseSummary,
     SectionArcGISLogSettings,
     SectionArcGISServerMachines,
+    SectionArcGISServerMode,
     SectionArcGISServiceStats,
     SectionArcGISServices,
+    SectionArcGISWebAdaptors,
     SectionPortalFederation,
     SectionPortalHealth,
     SectionPortalIndexer,
@@ -23,6 +25,7 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     SectionServerLicense,
     ServerLicenseEntry,
     ServiceStatsEntry,
+    WebAdaptorEntry,
 )
 
 
@@ -434,3 +437,27 @@ def arcgis_service_stats_section(
         )
  
     return SectionArcGISServiceStats(services=services)
+
+
+def server_mode_section(mode_data: dict) -> SectionArcGISServerMode:
+    return SectionArcGISServerMode(
+        site_mode=str(mode_data.get("siteMode", "UNKNOWN")),
+    )
+ 
+ 
+def web_adaptors_section(adaptors_data: dict) -> SectionArcGISWebAdaptors:
+    web_adaptors: list[WebAdaptorEntry] = []
+ 
+    for adaptor in adaptors_data.get("webAdaptors", []):
+        web_adaptors.append(
+            WebAdaptorEntry(
+                web_adaptor_url=adaptor.get("webAdaptorURL", ""),
+                machine_name=adaptor.get("machineName", ""),
+                http_port=int(adaptor.get("httpPort") or 80),
+                https_port=int(adaptor.get("httpsPort") or 443),
+                is_admin_enabled=bool(adaptor.get("isAdminEnabled", False)),
+                description=str(adaptor.get("description") or ""),
+            )
+        )
+ 
+    return SectionArcGISWebAdaptors(web_adaptors=web_adaptors)

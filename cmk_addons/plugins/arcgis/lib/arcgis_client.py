@@ -297,6 +297,14 @@ class ServerClient:
         """Delete a usage report by name."""
         return self.post_json(f"/admin/usagereports/{report_name}/delete")
  
+    def get_server_mode(self) -> dict:
+        """Return the site mode: EDITABLE or READ_ONLY."""
+        return self.get_json("/admin/mode")
+ 
+    def get_web_adaptors(self) -> dict:
+        """Return all web adaptors registered with this ArcGIS Server site."""
+        return self.get_json("/admin/system/webadaptors")
+
     def get_service_stats(
         self,
         service_resource_uris: list[str],

@@ -25,6 +25,7 @@ class CacheIntervalParams(BaseModel):
     server_license: int = Field(default=3600, ge=0)
     server_log_settings: int = Field(default=3600, ge=0)
     service_stats: int = Field(default=300, ge=0)
+    web_adaptors: int = Field(default=300, ge=0)
 
 
 class CollectionParams(BaseModel):
@@ -36,6 +37,8 @@ class CollectionParams(BaseModel):
     server_machines: bool = True
     server_services: bool = True
     server_service_stats: bool = True
+    server_mode: bool = True
+    web_adaptors: bool = True
     registered_datastores: bool = True
     managed_datastores: bool = True
     server_license: bool = True
@@ -89,6 +92,8 @@ def _append_cache_interval_args(
             str(cache_intervals.server_log_settings),
             "--service-stats-cache",
             str(cache_intervals.service_stats),
+            "--web-adaptors-cache",
+            str(cache_intervals.web_adaptors),
         ]
     )
 
@@ -106,6 +111,8 @@ def _append_disabled_collection_flags(
         (collections.server_machines, "--no-server-machines"),
         (collections.server_services, "--no-server-services"),
         (collections.server_service_stats, "--no-service-stats"),
+        (collections.server_mode, "--no-server-mode"),
+        (collections.web_adaptors, "--no-web-adaptors"),
         (collections.registered_datastores, "--no-registered-datastores"),
         (collections.managed_datastores, "--no-managed-datastores"),
         (collections.server_license, "--no-server-license"),

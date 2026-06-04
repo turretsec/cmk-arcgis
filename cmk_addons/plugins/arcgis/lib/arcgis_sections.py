@@ -135,3 +135,20 @@ class ServiceStatsEntry(BaseModel):
  
 class SectionArcGISServiceStats(BaseModel):
     services: list[ServiceStatsEntry] = Field(default_factory=list)
+ 
+ 
+class SectionArcGISServerMode(BaseModel):
+    site_mode: str = "UNKNOWN"
+ 
+ 
+class WebAdaptorEntry(BaseModel):
+    web_adaptor_url: str
+    machine_name: str
+    http_port: int = 80
+    https_port: int = 443
+    is_admin_enabled: bool = False
+    description: str = ""
+ 
+ 
+class SectionArcGISWebAdaptors(BaseModel):
+    web_adaptors: list[WebAdaptorEntry] = Field(default_factory=list)

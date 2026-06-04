@@ -26,6 +26,8 @@ from cmk_addons.plugins.arcgis.lib.arcgis_output import (
     portal_indexer_section,
     portal_license_section,
     server_license_section,
+    server_mode_section,
+    web_adaptors_section,
 )
 from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     ManagedDatastoreValidation,
@@ -34,10 +36,7 @@ from cmk_addons.plugins.arcgis.lib.arcgis_sections import (
     SectionRegisteredDatastoreValidation,
 )
 
-# ---------------------------------------------------------------------------
 # Logging config
-# ---------------------------------------------------------------------------
-
 AGENT = "arcgis"
 LOGGER = logging.getLogger(f"agent_{AGENT}")
 
@@ -185,6 +184,14 @@ def parse_arguments(argv):
     parser.add_argument("--no-server-license", action="store_true")
     parser.add_argument("--no-server-log-settings", action="store_true")
     parser.add_argument("--no-service-stats", action="store_true")
+    parser.add_argument("--no-server-mode", action="store_true")
+    parser.add_argument("--no-web-adaptors", action="store_true")
+    parser.add_argument(
+        "--web-adaptors-cache",
+        type=non_negative_int,
+        default=300,
+        help="Cache interval in seconds for web adaptor collection. Use 0 to disable.",
+    )
 
     parser.add_argument(
         "--server-include-regex",
@@ -275,6 +282,8 @@ def server_collection_enabled(args: argparse.Namespace) -> bool:
             not args.no_server_license,
             not args.no_server_log_settings,
             not args.no_service_stats,
+            not args.no_server_mode,
+            not args.no_web_adaptors,
         ]
     )
 
@@ -314,8 +323,8 @@ def piggyback_host_from_machine_name(machine_name: str) -> str:
     """Convert ArcGIS machine/FQDN names to Checkmk host names.
 
     Example:
-        DS1.ACME.ORG -> ds1
-        ds1 -> ds1
+        GIS-SERVER-01.EXAMPLE.ORG -> gis-server-01
+        gis-server-01 -> gis-server-01
     """
     return machine_name.split(".", 1)[0].lower()
 
@@ -336,7 +345,7 @@ def _service_to_resource_uri(service: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Collection functions - Portal
+# Collection functions — Portal
 # ---------------------------------------------------------------------------
 
 def collect_portal(
@@ -475,7 +484,7 @@ def collect_portal(
 
 
 # ---------------------------------------------------------------------------
-# Collection functions - Server
+# Collection functions — Server
 # ---------------------------------------------------------------------------
 
 def collect_server_machines(
@@ -763,6 +772,38 @@ def collect_server_log_settings(
     )
 
 
+def collect_server_mode(
+    server_name: str,
+    server_client: ServerClient,
+    collection: CollectionStatus,
+) -> None:
+    LOGGER.info("Collecting server mode for %s", server_name)
+    mode_data = server_client.get_server_mode()
+    LOGGER.debug("Server mode for %s: %s", server_name, mode_data)
+    output_json_piggyback(
+        server_name,
+        "arcgis_server_mode",
+        server_mode_section(mode_data),
+    )
+
+
+def collect_web_adaptors(
+    server_name: str,
+    server_client: ServerClient,
+    collection: CollectionStatus,
+    cache_seconds: int,
+) -> None:
+    LOGGER.info("Collecting web adaptors for %s", server_name)
+    adaptors_data = server_client.get_web_adaptors()
+    LOGGER.debug("Web adaptors for %s: %s", server_name, adaptors_data)
+    output_json_piggyback(
+        server_name,
+        "arcgis_web_adaptors",
+        web_adaptors_section(adaptors_data),
+        cache_interval=cache_interval(cache_seconds),
+    )
+
+
 def collect_server(
     args,
     server: dict,
@@ -877,6 +918,31 @@ def collect_server(
         except Exception as e:
             collection.error("server_log_settings", server_name, e)
             log_collection_error("server_log_settings", server_name, e)
+
+    if args.no_server_mode:
+        log_disabled_collection("server_mode", server_name)
+    else:
+        try:
+            collect_server_mode(server_name, server_client, collection)
+            collection.ok("server_mode", server_name)
+        except Exception as e:
+            collection.error("server_mode", server_name, e)
+            log_collection_error("server_mode", server_name, e)
+
+    if args.no_web_adaptors:
+        log_disabled_collection("web_adaptors", server_name)
+    else:
+        try:
+            collect_web_adaptors(
+                server_name,
+                server_client,
+                collection,
+                args.web_adaptors_cache,
+            )
+            collection.ok("web_adaptors", server_name)
+        except Exception as e:
+            collection.error("web_adaptors", server_name, e)
+            log_collection_error("web_adaptors", server_name, e)
 
 
 def agent_arcgis(args):

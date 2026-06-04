@@ -110,6 +110,10 @@ def _cache_intervals_form() -> Dictionary:
                 parameter_form=_cache_interval("Service usage statistics", 300),
                 required=False,
             ),
+            "web_adaptors": DictElement(
+                parameter_form=_cache_interval("Web adaptors", 300),
+                required=False,
+            ),
         },
     )
 
@@ -199,6 +203,20 @@ def _collections_form() -> Dictionary:
                 parameter_form=_collection_toggle(
                     "Server log settings",
                     "Collect ArcGIS Server log settings",
+                ),
+                required=False,
+            ),
+            "server_mode": DictElement(
+                parameter_form=_collection_toggle(
+                    "Server mode",
+                    "Collect ArcGIS Server site mode (EDITABLE / READ_ONLY)",
+                ),
+                required=False,
+            ),
+            "web_adaptors": DictElement(
+                parameter_form=_collection_toggle(
+                    "Web adaptors",
+                    "Collect registered web adaptors for each ArcGIS Server site",
                 ),
                 required=False,
             ),

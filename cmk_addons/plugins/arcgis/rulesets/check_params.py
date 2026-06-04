@@ -692,3 +692,72 @@ rule_spec_arcgis_collection_status = CheckParameters(
     parameter_form=_parameter_form_arcgis_collection_status,
     condition=HostCondition(),
 )
+
+# ---------------------------------------------------------------------------
+# Server mode
+# ---------------------------------------------------------------------------
+ 
+def _parameter_form_arcgis_server_mode() -> Dictionary:
+    return Dictionary(
+        elements={
+            "read_only_state": DictElement(
+                parameter_form=_state_choice(
+                    "State when site is in READ_ONLY mode",
+                    "warn",
+                ),
+                required=True,
+            ),
+            "unknown_state": DictElement(
+                parameter_form=_state_choice(
+                    "State when site mode is unknown or unexpected",
+                    "unknown",
+                ),
+                required=True,
+            ),
+        }
+    )
+ 
+ 
+rule_spec_arcgis_server_mode = CheckParameters(
+    name="arcgis_server_mode",
+    title=Title("ArcGIS Server mode handling"),
+    topic=Topic.APPLICATIONS,
+    parameter_form=_parameter_form_arcgis_server_mode,
+    condition=HostCondition(),
+)
+ 
+ 
+# ---------------------------------------------------------------------------
+# Web adaptors
+# ---------------------------------------------------------------------------
+ 
+def _parameter_form_arcgis_web_adaptors() -> Dictionary:
+    return Dictionary(
+        elements={
+            "missing_state": DictElement(
+                parameter_form=_state_choice(
+                    "State when a web adaptor is no longer registered",
+                    "crit",
+                ),
+                required=True,
+            ),
+            "admin_enabled_state": DictElement(
+                parameter_form=_state_choice(
+                    "State when admin access is enabled on a web adaptor",
+                    "warn",
+                ),
+                required=True,
+            ),
+        }
+    )
+ 
+ 
+rule_spec_arcgis_web_adaptors = CheckParameters(
+    name="arcgis_web_adaptors",
+    title=Title("ArcGIS web adaptor handling"),
+    topic=Topic.APPLICATIONS,
+    parameter_form=_parameter_form_arcgis_web_adaptors,
+    condition=HostAndItemCondition(
+        item_title=Title("Web adaptor URL"),
+    ),
+)
