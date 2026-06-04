@@ -136,9 +136,6 @@ class PortalClient:
     def validate_federation(self) -> dict:
         return self.get_json("/portaladmin/federation/servers/validate")
 
-    def get_indexer_status(self) -> dict:
-        return self.get_json("/portaladmin/system/indexer/status")
-
     def get_license(self) -> dict:
         return self.get_json("/portaladmin/license")
 
