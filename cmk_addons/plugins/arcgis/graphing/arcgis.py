@@ -342,16 +342,16 @@ graph_arcgis_license_expiration = Graph(
 # Server log metrics
 # ---------------------------------------------------------------------------
  
-metric_arcgis_severe_log_count = Metric(
-    name="arcgis_severe_log_count",
-    title=Title("Severe log errors"),
+metric_arcgis_server_severe_log_count = Metric(
+    name="arcgis_server_severe_log_count",
+    title=Title("Server severe log entries"),
     unit=Unit(DecimalNotation("")),
     color=Color.RED,
 )
- 
-metric_arcgis_warning_log_count = Metric(
-    name="arcgis_warning_log_count",
-    title=Title("Warning log messages"),
+
+metric_arcgis_server_warning_log_count = Metric(
+    name="arcgis_server_warning_log_count",
+    title=Title("Server warning log entries"),
     unit=Unit(DecimalNotation("")),
     color=Color.ORANGE,
 )
@@ -361,7 +361,7 @@ metric_arcgis_warning_log_count = Metric(
 perfometer_arcgis_server_logs = Perfometer(
     name="arcgis_server_logs",
     focus_range=FocusRange(Closed(0), Open(10)),
-    segments=["arcgis_severe_log_count"],
+    segments=["arcgis_server_severe_log_count"],
 )
  
 # Graph: severe errors as a filled area (the critical signal) with warning
@@ -369,16 +369,15 @@ perfometer_arcgis_server_logs = Perfometer(
 # levels for SEVERE directly on the chart.
 graph_arcgis_server_log_counts = Graph(
     name="arcgis_server_log_counts",
-    title=Title("Server Log Error Counts"),
-    compound_lines=["arcgis_severe_log_count"],
+    title=Title("Server Log Messages"),
+    compound_lines=["arcgis_server_severe_log_count"],
     simple_lines=[
-        "arcgis_warning_log_count",
-        WarningOf("arcgis_severe_log_count"),
-        CriticalOf("arcgis_severe_log_count"),
+        "arcgis_server_warning_log_count",
+        WarningOf("arcgis_server_severe_log_count"),
+        CriticalOf("arcgis_server_severe_log_count"),
     ],
-    optional=["arcgis_warning_log_count"],
+    optional=["arcgis_server_warning_log_count"],
 )
-
 
 # ---------------------------------------------------------------------------
 # Portal log metrics

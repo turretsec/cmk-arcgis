@@ -280,7 +280,7 @@ def discover_arcgis_portal_federation_servers(
     section: SectionPortalFederation,
 ) -> DiscoveryResult:
     for server in section.servers:
-        yield Service(item=server.admin_url)
+        yield Service(item=server.name)
 
 
 def check_arcgis_portal_federation_servers(
@@ -288,9 +288,9 @@ def check_arcgis_portal_federation_servers(
     params: Mapping[str, Any],
     section: SectionPortalFederation,
 ) -> CheckResult:
-    servers_by_url = {server.admin_url: server for server in section.servers}
+    servers_by_name = {server.name: server for server in section.servers}
 
-    server = servers_by_url.get(item)
+    server = servers_by_name.get(item)
     if server is None:
         yield Result(
             state=state_from_param(
@@ -306,7 +306,11 @@ def check_arcgis_portal_federation_servers(
         _federation_server_param_str,
     )
 
-    yield Result(state=state, summary=f"Federated server is {text}")
+    yield Result(
+        state=state,
+        summary=f"Federated server is {text}",
+        details=f"Admin URL: {server.admin_url}",
+    )
 
 
 check_plugin_arcgis_portal_federation_servers = CheckPlugin(

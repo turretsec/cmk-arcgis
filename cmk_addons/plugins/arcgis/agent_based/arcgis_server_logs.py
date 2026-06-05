@@ -80,12 +80,12 @@ def check_arcgis_server_logs(
 
     # Metrics - yielded before Result so they're always stored.
     yield Metric(
-        "arcgis_severe_log_count",
+        "arcgis_server_severe_log_count",
         float(section.severe_count),
         levels=(float(severe_warn), float(severe_crit)) if severe_warn > 0 else None,
     )
     yield Metric(
-        "arcgis_warning_log_count",
+        "arcgis_server_warning_log_count",
         float(section.warning_count),
         levels=(float(warning_warn), float(warning_crit)) if warning_warn > 0 else None,
     )

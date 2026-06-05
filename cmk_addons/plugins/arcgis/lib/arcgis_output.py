@@ -240,13 +240,24 @@ def portal_indexer_section(indexer_data: dict) -> SectionPortalIndexer:
 
 
 def portal_federation_section(validation_data: dict) -> SectionPortalFederation:
-    servers = [
-        PortalFederatedServerStatus(
-            admin_url=server.get("adminUrl", "unknown"),
-            status=server.get("status", "unknown"),
+    servers = []
+
+    for server in validation_data.get("serversStatus", []):
+        admin_url = str(server.get("adminUrl") or server.get("adminURL") or "unknown")
+        name = str(
+            server.get("name")
+            or server.get("serverName")
+            or server.get("serverId")
+            or admin_url
         )
-        for server in validation_data.get("serversStatus", [])
-    ]
+
+        servers.append(
+            PortalFederatedServerStatus(
+                name=name,
+                admin_url=admin_url,
+                status=server.get("status", "unknown"),
+            )
+        )
 
     return SectionPortalFederation(
         servers=servers,
