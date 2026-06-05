@@ -20,7 +20,23 @@ The plugin runs from a Checkmk host representing ArcGIS Portal, collects Portal-
 - Federated server include and exclude regex filtering
 - Portal and Server log suppression filters for known noisy log messages
 
+### Optional dashboard
+
+An optional **ArcGIS Enterprise** dashboard MKP is available alongside the main plugin release. This dashboard **requires a minimum version** of `2.5.0p1` as it's built on a responsive layout type.
+
+Install order:
+
+1. Install `cmk-arcgis-enterprise-<version>.mkp`
+2. Install `cmk-arcgis-dashboard-enterprise-<version>.mkp`
+3. Activate changes
+4. Open the dashboard from the Checkmk dashboard menu
+
+The dashboard uses generic ArcGIS service filters and does not require fixed host names. It is intended as a starting point and can be cloned/customized after installation.
+
 ## Screenshots
+
+## Example Dashboard
+![ArcGIS Example Dashboard](docs/images/example_dashboard.png)
 
 ### ArcGIS Portal Services
 ![ArcGIS portal services](docs/images/example_portal_services.png)
