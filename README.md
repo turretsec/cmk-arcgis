@@ -153,12 +153,20 @@ cmk-validate-plugins
 ## Setup
 
 1. Add or choose a Checkmk host for ArcGIS Portal.
+    - For the host, ensure under **Host properties -> Monitoring agents -> Checkmk agent / API integrations** that `Configured API integrations and Checkmk agent` is selected if you also use a monitoring agent. Otherwise it will un-discover all services not found by the special agent.
 2. Add Checkmk hosts for federated ArcGIS Server sites or configure piggyback host name translation.
 3. Store the ArcGIS admin password in the Checkmk password store.
-4. Create a rule under **Setup -> VM, cloud, container -> ArcGIS Enterprise**.
+4. Create a rule under **Setup -> Other integrations -> ArcGIS Enterprise**.
+    - Define the `ArcGIS admin username` and `ArcGIS admin password` you want to use with Portal
+    - Define the `Portal URL` such as `https://gis.example.com/portal`.
+    - Check and define `Verify SSL certificates` as either enabled or disabled (checked means enabled)
 5. Assign the rule to the Portal host.
+    - Under **Conditions** define the Portal host as an **Explicit host**
 6. Run service discovery on the Portal host.
 7. Run service discovery on the federated Server hosts after piggyback data is available.
+
+### Basic Special Agent Rule Example
+![Example special agent rule](docs/images/example_rule.png)
 
 ## Configuration
 
