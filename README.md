@@ -35,7 +35,7 @@ The dashboard uses generic ArcGIS service filters and does not require fixed hos
 
 ## Screenshots
 
-## Example Dashboard
+### Example Dashboard
 ![ArcGIS Example Dashboard](docs/images/example_dashboard.png)
 
 ### ArcGIS Portal Services
