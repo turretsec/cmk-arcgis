@@ -3,6 +3,7 @@ import re
 import sys
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 from pydantic import BaseModel
 
@@ -239,23 +240,98 @@ def portal_indexer_section(indexer_data: dict) -> SectionPortalIndexer:
     return SectionPortalIndexer(indexes=indexes, sync_status=sync_status)
 
 
-def portal_federation_section(validation_data: dict) -> SectionPortalFederation:
-    servers = []
+def _normalize_url(value: str) -> str:
+    return value.rstrip("/").lower()
 
-    for server in validation_data.get("serversStatus", []):
-        admin_url = str(server.get("adminUrl") or server.get("adminURL") or "unknown")
-        name = str(
-            server.get("name")
-            or server.get("serverName")
-            or server.get("serverId")
-            or admin_url
+
+def _short_host_from_url(value: str) -> str:
+    try:
+        host = urlparse(value).hostname or value
+    except ValueError:
+        host = value
+
+    return host.split(".", 1)[0] or "unknown"
+
+
+def _server_lookup_keys(server: dict) -> set[str]:
+    keys = set()
+
+    for key in ("id", "serverId", "adminUrl", "adminURL", "url"):
+        value = server.get(key)
+        if value:
+            text = str(value)
+            keys.add(text)
+            keys.add(_normalize_url(text))
+
+    return keys
+
+
+def _federated_server_name(server: dict) -> str:
+    return str(
+        server.get("name")
+        or server.get("serverName")
+        or server.get("id")
+        or server.get("serverId")
+        or server.get("adminUrl")
+        or server.get("url")
+        or "unknown"
+    )
+
+
+def portal_federation_section(
+    validation_data: dict,
+    federated_servers: list[dict] | None = None,
+) -> SectionPortalFederation:
+    federated_servers = federated_servers or []
+
+    lookup: dict[str, dict] = {}
+    for server in federated_servers:
+        for key in _server_lookup_keys(server):
+            lookup[key] = server
+
+    servers: list[PortalFederatedServerStatus] = []
+
+    for validation in validation_data.get("serversStatus", []):
+        matched_server = None
+
+        for key in _server_lookup_keys(validation):
+            matched_server = lookup.get(key)
+            if matched_server:
+                break
+
+        admin_url = str(
+            validation.get("adminUrl")
+            or validation.get("adminURL")
+            or (matched_server or {}).get("adminUrl")
+            or (matched_server or {}).get("adminURL")
+            or ""
         )
+
+        service_url = str(
+            validation.get("url")
+            or (matched_server or {}).get("url")
+            or ""
+        )
+
+        if matched_server:
+            name = _federated_server_name(matched_server)
+        else:
+            # Last-resort fallback. Prefer a readable host over ArcGIS's opaque ID.
+            name = str(
+                validation.get("name")
+                or validation.get("serverName")
+                or (_short_host_from_url(admin_url) if admin_url else "")
+                or validation.get("serverId")
+                or validation.get("id")
+                or "unknown"
+            )
 
         servers.append(
             PortalFederatedServerStatus(
                 name=name,
                 admin_url=admin_url,
-                status=server.get("status", "unknown"),
+                service_url=service_url,
+                status=validation.get("status", "unknown"),
             )
         )
 

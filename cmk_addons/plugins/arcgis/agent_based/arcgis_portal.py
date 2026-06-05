@@ -309,7 +309,10 @@ def check_arcgis_portal_federation_servers(
     yield Result(
         state=state,
         summary=f"Federated server is {text}",
-        details=f"Admin URL: {server.admin_url}",
+        details=(
+            f"Admin URL: {server.admin_url}\n"
+            f"Service URL: {server.service_url}"
+        ),
     )
 
 

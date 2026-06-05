@@ -484,7 +484,10 @@ def collect_portal(
             LOGGER.info("Collecting portal federation validation")
             output_json_section(
                 "arcgis_portal_federation",
-                portal_federation_section(portal_client.validate_federation()),
+                portal_federation_section(
+                    portal_client.validate_federation(),
+                    portal_client.get_federated_servers(),
+                ),
                 cache_interval=cache_interval(args.portal_federation_cache),
             )
             collection.ok("portal_federation", "portal")

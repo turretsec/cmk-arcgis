@@ -87,7 +87,8 @@ class SectionPortalIndexer(BaseModel):
 
 class PortalFederatedServerStatus(BaseModel):
     name: str
-    admin_url: str
+    admin_url: str = ""
+    service_url: str = ""
     status: str
 
 
