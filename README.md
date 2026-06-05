@@ -1,6 +1,6 @@
 # Checkmk ArcGIS Enterprise Plugin
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: GPL v2](https://img.shields.io/badge/License-GPLv2-blue.svg)](LICENSE)
 [![Checkmk](https://img.shields.io/badge/Checkmk-2.3.0p1+-brightgreen.svg)](https://checkmk.com/)
 [![ArcGIS Enterprise](https://img.shields.io/badge/ArcGIS%20Enterprise-%2011.1+-blue.svg)](https://enterprise.arcgis.com/)
 
@@ -425,6 +425,6 @@ Enable SSL verification in production and ensure the Checkmk site trusts the cer
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE).
+This project is licensed under the GNU General Public License v2.0 only. See [LICENSE](LICENSE).
 
 This project is an independent Checkmk extension and is not affiliated with or endorsed by Checkmk GmbH or Esri. Checkmk and ArcGIS Enterprise are licensed separately by their respective owners.

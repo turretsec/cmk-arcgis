@@ -1,7 +1,7 @@
 title: ArcGIS Portal Log Settings
 agents: special
 catalog: app/arcgis
-license: MIT
+license: GPL
 distribution: custom
 
 description:
