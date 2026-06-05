@@ -22,7 +22,7 @@ The plugin runs from a Checkmk host representing ArcGIS Portal, collects Portal-
 
 ### Optional dashboard
 
-An optional **ArcGIS Enterprise** dashboard MKP is available alongside the main plugin release. This dashboard **requires a minimum version** of `2.5.0p1` as it's built on a responsive layout type.
+An optional **ArcGIS Enterprise** dashboard MKP is available alongside the main plugin release. The optional dashboard requires Checkmk `2.5.0p1` or newer because it uses the responsive dashboard layout.
 
 Install order:
 
@@ -276,7 +276,7 @@ Service usage statistics are attached to the existing `ArcGIS Service <name>` ch
 | `ArcGIS Portal Health` | Ready state for a Portal machine |
 | `ArcGIS Portal Index <name>` | Database count vs index count for Portal indexes |
 | `ArcGIS Portal Index Sync` | Overall Portal index sync health |
-| `ArcGIS Federated Server <admin_url>` | Validation status for a federated Server |
+| `ArcGIS Federated Server <name>` | Validation status for a federated Server |
 | `ArcGIS Portal Federation Status` | Overall federation validation status |
 | `ArcGIS Portal License summary` | Portal version and total registered member usage |
 | `ArcGIS Portal License <kind> <id>` | Per-item license usage and expiration |
