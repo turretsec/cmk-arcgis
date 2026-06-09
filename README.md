@@ -4,6 +4,8 @@
 [![Checkmk](https://img.shields.io/badge/Checkmk-2.3.0p1+-brightgreen.svg)](https://checkmk.com/)
 [![ArcGIS Enterprise](https://img.shields.io/badge/ArcGIS%20Enterprise-%2011.1+-blue.svg)](https://enterprise.arcgis.com/)
 
+**View on the _[CheckMK Exchange](https://exchange.checkmk.com/p/cmk-arcgis-enterprise)_**
+
 A Checkmk special agent for monitoring ArcGIS Enterprise through the ArcGIS REST Admin API.
 
 The plugin runs from a Checkmk host representing ArcGIS Portal, collects Portal-level health and configuration, discovers federated ArcGIS Server sites, and emits Server data as Checkmk piggyback sections.
