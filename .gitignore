@@ -25,8 +25,11 @@ dist/
 
 # Local scripts and scratch files
 scripts/
-docker-compose.yml
 tempCodeRunnerFile.py
 
 # Windows alternate data stream markers
 *:Zone.Identifier
+
+# Secrets
+*.env
+.env

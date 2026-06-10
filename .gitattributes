@@ -8,4 +8,4 @@
 *.txt text eol=lf
 *.sh text eol=lf
 
-cmk_addons/plugins/arcgis/checkman/* text eol=lf
+local/lib/python3/cmk_addons/plugins/*/checkman/* text eol=lf
