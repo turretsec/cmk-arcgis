@@ -10,6 +10,8 @@ A Checkmk special agent for monitoring ArcGIS Enterprise through the ArcGIS REST
 
 The plugin runs from a Checkmk host representing ArcGIS Portal, collects Portal-level health and configuration, discovers federated ArcGIS Server sites, and emits Server data as Checkmk piggyback sections.
 
+> For monitoring updates, see the related plugin: [ArcGIS Enterprise Updates](https://github.com/turretsec/cmk-arcgis-updates)
+
 ## Features
 
 - Portal health, index status, federation validation, license usage, log settings, and Portal logs
